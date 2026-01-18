@@ -1,9 +1,24 @@
+@font-face {
+    font-family: "Inter";
+    src: url("/fonts/Inter.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: "Code";
+    src: url("/fonts/GoogleSansCode.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+}
+
 html, body, #root {
     height: 100%;
     margin: 0;
     padding: 0;
     background: #0f1115;
     overflow: hidden;
+    font-family: "Inter", system-ui, sans-serif;
 }
 
 * {
