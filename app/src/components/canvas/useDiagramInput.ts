@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent, type MouseEvent } from "react";
 
 import type { DiagramSnapshotV2 } from "../../model/diagram";
 import type { UmlRelation } from "../../model/relation";
@@ -30,6 +30,10 @@ type NodeManipApi = {
 type RelCreationApi = {
     mode: boolean;
     hasFrom: boolean;
+
+    // NEW: contrôle explicite du mode (piloté par state.mode)
+    setActive: (active: boolean) => void;
+
     toggleMode: () => void;
     startFrom: (id: string) => void;
     commitTo: (id: string) => void;
@@ -76,6 +80,9 @@ export function useDiagramInput(args: {
         deleteSelected: () => void;
         setRelationKindOnSelected: (k: UmlRelation["kind"]) => void;
         editSelectedRelationLabel: () => void;
+
+        // NEW: pour le mode addClass
+        createClassAt: (worldX: number, worldY: number) => void;
     };
 }) {
     const {
@@ -95,12 +102,32 @@ export function useDiagramInput(args: {
 
     const manipStartSnapshotRef = useRef<DiagramSnapshotV2 | null>(null);
 
+    useEffect(() => {
+        if (state.mode === "link") relApi.setActive(true);
+        else relApi.setActive(false);
+    }, [state.mode, relApi]);
+
     function onBackgroundMouseDown(e: MouseEvent<SVGRectElement>) {
         if (e.button !== 0) return;
 
         ctxMenu.close();
         focusRoot();
 
+        if (state.mode === "addClass") {
+            editApi.commitLineEdit();
+            editApi.commitNameEdit();
+
+            const { sx, sy } = getLocalScreenPointFromMouseEvent(e);
+            const world = screenToWorld(sx, sy, cameraApi.camera);
+
+            undoApi.pushSnapshot();
+            actions.createClassAt(world.x, world.y);
+
+            state.setMode("select");
+            return;
+        }
+
+        // mode pan OU select : désélection + pan si pan, sinon pan autorisé uniquement sur fond
         editApi.commitLineEdit();
         editApi.commitNameEdit();
 
@@ -248,17 +275,25 @@ export function useDiagramInput(args: {
             }
         }
 
-        if (e.key === "r" || e.key === "R") {
-            if (editApi.editingName || editApi.isEditingLine) return;
-            e.preventDefault();
-            relApi.toggleMode();
-            return;
+        if (!editApi.editingName && !editApi.isEditingLine) {
+            const k = e.key.toLowerCase();
+
+            if (k === "v") { e.preventDefault(); state.setMode("select"); return; }
+            if (k === "h") { e.preventDefault(); state.setMode("pan"); return; }
+            if (k === "l") { e.preventDefault(); state.setMode("link"); return; }
+            if (k === "c") { e.preventDefault(); state.setMode("addClass"); return; }
+
+            if (k === "g") {
+                e.preventDefault();
+                state.setGrid(g => ({ ...g, enabled: !g.enabled }));
+                return;
+            }
         }
 
         if (e.key === "Escape") {
-            if (relApi.mode) {
+            if (state.mode === "link") {
                 e.preventDefault();
-                relApi.cancel();
+                state.setMode("select");
                 return;
             }
         }

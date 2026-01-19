@@ -280,5 +280,8 @@ export function useDiagramActions(args: {
         editSelectedRelationLabel,
         applySnapshot,
         makeCurrentSnapshot: () => makeSnapshot(state.classes, state.viewsById, state.relations),
+
+        // NEW: utilisé par le mode "addClass" (toolbar + clic fond)
+        createClassAtWorld,
     };
 }

@@ -4,6 +4,7 @@ import type { UmlClass } from "../../model/uml";
 import type { ViewsById } from "../../model/views";
 import type { NodeView } from "../../model/view";
 import type { UmlRelation } from "../../model/relation";
+import type { EditorMode, GridState } from "../../model/ui";
 
 const DEFAULT_NODE_W = 260;
 const DEFAULT_NODE_H = 150;
@@ -23,6 +24,12 @@ export type DiagramStateApi = {
 
     selectedRelationId: string | null;
     setSelectedRelationId: Dispatch<SetStateAction<string | null>>;
+
+    mode: EditorMode;
+    setMode: Dispatch<SetStateAction<EditorMode>>;
+
+    grid: GridState;
+    setGrid: Dispatch<SetStateAction<GridState>>;
 
     selectedClass: UmlClass | null;
     selectedView: NodeView | null;
@@ -47,6 +54,9 @@ export function useDiagramState(): DiagramStateApi {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
 
+    const [mode, setMode] = useState<EditorMode>("select");
+    const [grid, setGrid] = useState<GridState>({ enabled: true, size: 50 });
+
     const selectedClass = useMemo(
         () => (selectedId ? classes.find(c => c.id === selectedId) ?? null : null),
         [classes, selectedId]
@@ -68,6 +78,10 @@ export function useDiagramState(): DiagramStateApi {
         setSelectedId,
         selectedRelationId,
         setSelectedRelationId,
+        mode,
+        setMode,
+        grid,
+        setGrid,
         selectedClass,
         selectedView,
     };

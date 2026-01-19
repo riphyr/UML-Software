@@ -44,15 +44,18 @@ export function useRelationCreation(p: {
     const [kind, setKind] = useState<RelationKind>("assoc");
     const [preview, setPreview] = useState<Preview | null>(null);
 
-    function toggleMode() {
+    function setActive(next: boolean) {
         if (disabled) return;
-        setMode(v => !v);
-        setPreview(null);
+        setMode(next);
+        if (!next) setPreview(null);
+    }
+
+    function toggleMode() {
+        setActive(!mode);
     }
 
     function cancel() {
-        setMode(false);
-        setPreview(null);
+        setActive(false);
     }
 
     function startFrom(id: string) {
@@ -100,6 +103,7 @@ export function useRelationCreation(p: {
         kind,
         setKind,
 
+        setActive,
         toggleMode,
         cancel,
 

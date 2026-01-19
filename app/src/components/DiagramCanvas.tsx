@@ -1,17 +1,17 @@
 import { useRef } from "react";
-import type { MouseEvent } from "react";
 
 import ClassNode from "./nodes/ClassNode";
 import InlineEditors from "./canvas/InlineEditors";
 import RelationLayer from "./relations/RelationLayer";
 import Grid from "./canvas/Grid";
 import Axes from "./canvas/Axes";
+import ContextMenu from "./contextmenu/ContextMenu";
+
+import Toolbar from "./ui/toolbar/Toolbar";
 
 import { NODE_ATTR_START_Y, getAttrsCount, getMethodsStartY } from "./nodes/layout";
 import { screenToWorld } from "../utils/coords";
-import { makeSnapshot, type DiagramSnapshotV2 } from "../model/diagram";
-
-import ContextMenu from "./contextmenu/ContextMenu";
+import { makeSnapshot } from "../model/diagram";
 
 import { useCamera } from "./canvas/useCamera";
 import { useNodeManipulation } from "./canvas/useNodeManipulation";
@@ -61,50 +61,41 @@ export default function DiagramCanvas() {
         camera: cameraApi.camera,
         getViewById: (id: string) => state.viewsById[id],
         setViewsById: state.setViewsById,
-        disabled: (editApi.editingName || editApi.isEditingLine) || relApi.mode,
+        disabled: (editApi.editingName || editApi.isEditingLine) || (state.mode === "link"),
+        grid: { enabled: state.grid.enabled, size: state.grid.size },
     });
 
     function focusRoot() {
         rootRef.current?.focus();
     }
 
-    function getLocalScreenPointFromMouseEvent(e: MouseEvent) {
+    function getLocalScreenPointFromMouseEvent(e: any) {
         const rect = svgRef.current!.getBoundingClientRect();
         return { sx: e.clientX - rect.left, sy: e.clientY - rect.top };
     }
 
+    const actions = useDiagramActions({
+        state,
+        undo: { pushSnapshot: () => undoApi.pushSnapshot() },
+        edit: editApi,
+        rel: { mode: relApi.mode, setKind: relApi.setKind, cancel: relApi.cancel },
+        ctxMenu: { close: () => ctxMenu.close() },
+        persistence,
+    });
+
     const ctxMenu = useContextMenu({
         classes: state.classes,
         relations: state.relations,
-        onAction: (a) => actions.onContextAction(a),
+        onAction: actions.onContextAction,
     });
 
-    function applySnapshot(s: DiagramSnapshotV2) {
-        state.setClasses(s.classes);
-        state.setViewsById(s.viewsById);
-        state.setRelations(s.relations);
-
-        state.setSelectedId(null);
-        state.setSelectedRelationId(null);
-
-        ctxMenu.close();
-        relApi.cancel();
-        editApi.cancelLineEdit();
-        editApi.cancelNameEdit();
+    function applySnapshot(s: any) {
+        actions.applySnapshot(s);
     }
 
     const undoApi = useUndoRedo({
         getSnapshot: () => makeSnapshot(state.classes, state.viewsById, state.relations),
         applySnapshot,
-    });
-
-    const actions = useDiagramActions({
-        state,
-        undo: { pushSnapshot: undoApi.pushSnapshot },
-        edit: editApi,
-        rel: { mode: relApi.mode, setKind: relApi.setKind, cancel: relApi.cancel },
-        ctxMenu,
-        persistence,
     });
 
     const input = useDiagramInput({
@@ -114,7 +105,11 @@ export default function DiagramCanvas() {
         state,
         cameraApi,
         nodeManip,
-        relApi,
+        relApi: {
+            ...relApi,
+            // assure typage si TS râle (selon ton patch du hook relations)
+            setActive: (relApi as any).setActive,
+        } as any,
         editApi,
         undoApi,
         ctxMenu,
@@ -123,6 +118,7 @@ export default function DiagramCanvas() {
             deleteSelected: actions.deleteSelected,
             setRelationKindOnSelected: actions.setRelationKindOnSelected,
             editSelectedRelationLabel: actions.editSelectedRelationLabel,
+            createClassAt: actions.createClassAtWorld,
         },
     });
 
@@ -135,15 +131,34 @@ export default function DiagramCanvas() {
             tabIndex={0}
             onKeyDown={input.onKeyDown}
             onContextMenuCapture={(e) => e.preventDefault()}
-            style={{ width: "100%", height: "100%", outline: "none" }}
+            style={{ width: "100%", height: "100%", outline: "none", position: "relative" }}
         >
+            <Toolbar
+                mode={state.mode}
+                setMode={(m) => state.setMode(m)}
+                grid={state.grid}
+                toggleGrid={() => state.setGrid(g => ({ ...g, enabled: !g.enabled }))}
+                setGridSize={(n) => state.setGrid(g => ({ ...g, size: Math.max(10, Math.round(n)) }))}
+                undo={() => undoApi.undo()}
+                redo={() => undoApi.redo()}
+                save={() => persistence.saveLocal()}
+                load={() => persistence.loadLocal()}
+                exportFile={() => { void persistence.exportFile(); }}
+                importFile={() => { void persistence.importFile(); }}
+            />
+
             <svg
                 ref={svgRef}
                 width="100%"
                 height="100%"
                 style={{
                     display: "block",
-                    cursor: cameraApi.isPanning ? "grabbing" : (relApi.mode ? "crosshair" : "default"),
+                    cursor:
+                        cameraApi.isPanning ? "grabbing"
+                            : state.mode === "link" ? "crosshair"
+                                : state.mode === "pan" ? "grab"
+                                    : state.mode === "addClass" ? "copy"
+                                        : "default",
                     userSelect: "none",
                 }}
                 onMouseMove={input.onMouseMove}
@@ -165,7 +180,13 @@ export default function DiagramCanvas() {
                 />
 
                 <g transform={`translate(${cameraApi.camera.x}, ${cameraApi.camera.y}) scale(${cameraApi.camera.scale})`}>
-                    <Grid width={2000} height={2000} scale={cameraApi.camera.scale} />
+                    <Grid
+                        width={2000}
+                        height={2000}
+                        scale={cameraApi.camera.scale}
+                        enabled={state.grid.enabled}
+                        base={state.grid.size}
+                    />
                     <Axes />
 
                     <RelationLayer
@@ -238,21 +259,21 @@ export default function DiagramCanvas() {
                                 editing={isSelected && editApi.editingName}
                                 onMouseDown={e => input.onNodeMouseDown(c.id, e)}
                                 onResizeStart={(handle, e) => input.onResizeStart(c.id, handle, e)}
+                                onSelect={e => input.onNodeSelectOnly(c.id, e)}
                                 onDoubleClickName={() => {
-                                    if (relApi.mode) return;
+                                    if (state.mode === "link") return;
                                     state.setSelectedId(c.id);
                                     state.setSelectedRelationId(null);
                                     requestAnimationFrame(() => editApi.startEditName());
                                 }}
-                                onSelect={e => input.onNodeSelectOnly(c.id, e)}
                                 onDoubleClickAttribute={i => {
-                                    if (relApi.mode) return;
+                                    if (state.mode === "link") return;
                                     state.setSelectedId(c.id);
                                     state.setSelectedRelationId(null);
                                     requestAnimationFrame(() => editApi.startEditAttribute(i));
                                 }}
                                 onDoubleClickMethod={i => {
-                                    if (relApi.mode) return;
+                                    if (state.mode === "link") return;
                                     state.setSelectedId(c.id);
                                     state.setSelectedRelationId(null);
                                     requestAnimationFrame(() => editApi.startEditMethod(i));
@@ -264,7 +285,9 @@ export default function DiagramCanvas() {
 
                                     cameraApi.allowPan(false);
 
-                                    const { sx, sy } = getLocalScreenPointFromMouseEvent(e);
+                                    const rect = svgRef.current!.getBoundingClientRect();
+                                    const sx = e.clientX - rect.left;
+                                    const sy = e.clientY - rect.top;
                                     const world = screenToWorld(sx, sy, cameraApi.camera);
 
                                     state.setSelectedId(c.id);

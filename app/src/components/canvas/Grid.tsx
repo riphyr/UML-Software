@@ -2,13 +2,14 @@ type Props = {
     width: number;
     height: number;
     scale: number;
+    enabled?: boolean;
+    base?: number;
 };
 
-export default function Grid({ width, height, scale }: Props) {
-    // taille de base d’une cellule en monde
-    const BASE = 50;
+export default function Grid({ width, height, scale, enabled = true, base = 50 }: Props) {
+    if (!enabled) return null;
 
-    // on adapte visuellement selon le zoom
+    const BASE = base;
     const step = BASE * Math.pow(2, Math.floor(Math.log2(1 / scale)));
 
     const linesX = Math.ceil(width / step);
