@@ -1,6 +1,8 @@
 import { useRef, useState, type MouseEvent } from "react";
 import { screenToWorld, type Camera } from "../../utils/coords";
 import type { NodeView } from "../../model/view";
+import type { ViewsById } from "../../model/views";
+import { updateView } from "../../model/views";
 
 export type ResizeHandle = "nw" | "ne" | "sw" | "se";
 
@@ -8,22 +10,25 @@ export function useNodeManipulation(params: {
     svgRef: React.RefObject<SVGSVGElement | null>;
     camera: Camera;
     getViewById: (id: string) => NodeView | undefined;
-    setViews: React.Dispatch<React.SetStateAction<NodeView[]>>;
+    setViewsById: React.Dispatch<React.SetStateAction<ViewsById>>;
     disabled: boolean;
 }) {
-    const { svgRef, camera, getViewById, setViews, disabled } = params;
+    const { svgRef, camera, getViewById, setViewsById, disabled } = params;
 
     const [draggingNode, setDraggingNode] = useState(false);
     const [resizing, setResizing] = useState<ResizeHandle | null>(null);
 
     const activeIdRef = useRef<string | null>(null);
+    const didChangeRef = useRef(false);
 
     const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-    const resizeStart = useRef<{ x: number; y: number; w: number; h: number }>({
+    const resizeStart = useRef<{ x: number; y: number; w: number; h: number; vx: number; vy: number }>({
         x: 0,
         y: 0,
         w: 0,
         h: 0,
+        vx: 0,
+        vy: 0,
     });
 
     function getLocalScreenPoint(e: MouseEvent) {
@@ -41,6 +46,7 @@ export function useNodeManipulation(params: {
         const world = screenToWorld(sx, sy, camera);
 
         activeIdRef.current = id;
+        didChangeRef.current = false;
         dragOffset.current = {
             x: world.x - view.x,
             y: world.y - view.y,
@@ -59,17 +65,19 @@ export function useNodeManipulation(params: {
         const world = screenToWorld(sx, sy, camera);
 
         activeIdRef.current = id;
+        didChangeRef.current = false;
         resizeStart.current = {
             x: world.x,
             y: world.y,
             w: view.width,
             h: view.height,
+            vx: view.x,
+            vy: view.y,
         };
 
         setResizing(handle);
     }
 
-    // Retourne true si l’event a été consommé (drag/resize)
     function onMouseMove(e: MouseEvent<SVGSVGElement>) {
         const id = activeIdRef.current;
         if (!id) return false;
@@ -82,51 +90,36 @@ export function useNodeManipulation(params: {
             const dx = world.x - resizeStart.current.x;
             const dy = world.y - resizeStart.current.y;
 
-            setViews(vs =>
-                vs.map(v => {
-                    if (v.id !== id) return v;
+            let nx = resizeStart.current.vx;
+            let ny = resizeStart.current.vy;
+            let nw = resizeStart.current.w;
+            let nh = resizeStart.current.h;
 
-                    let x = v.x;
-                    let y = v.y;
-                    let w = resizeStart.current.w;
-                    let h = resizeStart.current.h;
+            if (resizing.includes("e")) nw += dx;
+            if (resizing.includes("s")) nh += dy;
+            if (resizing.includes("w")) {
+                nw -= dx;
+                nx += dx;
+            }
+            if (resizing.includes("n")) {
+                nh -= dy;
+                ny += dy;
+            }
 
-                    if (resizing.includes("e")) w += dx;
-                    if (resizing.includes("s")) h += dy;
-                    if (resizing.includes("w")) {
-                        w -= dx;
-                        x += dx;
-                    }
-                    if (resizing.includes("n")) {
-                        h -= dy;
-                        y += dy;
-                    }
+            nw = Math.max(120, nw);
+            nh = Math.max(60, nh);
 
-                    return {
-                        ...v,
-                        x,
-                        y,
-                        width: Math.max(120, w),
-                        height: Math.max(60, h),
-                    };
-                })
-            );
-
+            didChangeRef.current = true;
+            setViewsById(prev => updateView(prev, id, { x: nx, y: ny, width: nw, height: nh }));
             return true;
         }
 
         if (draggingNode) {
-            setViews(vs =>
-                vs.map(v =>
-                    v.id === id
-                        ? {
-                            ...v,
-                            x: world.x - dragOffset.current.x,
-                            y: world.y - dragOffset.current.y,
-                        }
-                        : v
-                )
-            );
+            const nx = world.x - dragOffset.current.x;
+            const ny = world.y - dragOffset.current.y;
+
+            didChangeRef.current = true;
+            setViewsById(prev => updateView(prev, id, { x: nx, y: ny }));
             return true;
         }
 
@@ -139,6 +132,12 @@ export function useNodeManipulation(params: {
         activeIdRef.current = null;
     }
 
+    function consumeDidChange() {
+        const v = didChangeRef.current;
+        didChangeRef.current = false;
+        return v;
+    }
+
     return {
         draggingNode,
         resizing,
@@ -146,5 +145,6 @@ export function useNodeManipulation(params: {
         startResize,
         onMouseMove,
         stop,
+        consumeDidChange,
     };
 }

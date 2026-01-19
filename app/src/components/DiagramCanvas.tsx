@@ -1,86 +1,68 @@
-import { useMemo, useRef, useState, type MouseEvent, type KeyboardEvent } from "react";
+import { useRef } from "react";
+import type { MouseEvent } from "react";
+
 import ClassNode from "./nodes/ClassNode";
 import InlineEditors from "./canvas/InlineEditors";
-
-import type { UmlClass } from "../model/uml";
-import type { NodeView } from "../model/view";
-
-import { useCamera } from "./canvas/useCamera";
-import { useNodeManipulation, type ResizeHandle } from "./canvas/useNodeManipulation";
-import { useInlineEdit } from "./canvas/useInlineEdit";
-
-import { NODE_ATTR_START_Y, getAttrsCount, getMethodsStartY } from "./nodes/layout";
-
+import RelationLayer from "./relations/RelationLayer";
 import Grid from "./canvas/Grid";
 import Axes from "./canvas/Axes";
 
+import { NODE_ATTR_START_Y, getAttrsCount, getMethodsStartY } from "./nodes/layout";
 import { screenToWorld } from "../utils/coords";
+import { makeSnapshot, type DiagramSnapshotV2 } from "../model/diagram";
 
 import ContextMenu from "./contextmenu/ContextMenu";
-import { useContextMenu } from "./contextmenu/useContextMenu";
-import type { ContextAction } from "./contextmenu/types";
 
-const DEFAULT_NODE_W = 260;
-const DEFAULT_NODE_H = 150;
+import { useCamera } from "./canvas/useCamera";
+import { useNodeManipulation } from "./canvas/useNodeManipulation";
+import { useInlineEdit } from "./canvas/useInlineEdit";
+import { useRelationCreation } from "./relations/useRelationCreation";
+import { useUndoRedo } from "./canvas/useUndoRedo";
+import { useContextMenu } from "./contextmenu/useContextMenu";
+import { useDiagramPersistence } from "./canvas/useDiagramPersistence";
+
+import { useDiagramState } from "./canvas/useDiagramState";
+import { useDiagramActions } from "./canvas/useDiagramActions";
+import { useDiagramInput } from "./canvas/useDiagramInput";
 
 export default function DiagramCanvas() {
     const rootRef = useRef<HTMLDivElement | null>(null);
     const svgRef = useRef<SVGSVGElement | null>(null);
 
-    const [classes, setClasses] = useState<UmlClass[]>([
-        {
-            id: "class-1",
-            name: "ClassName",
-            attributes: ["+ id: int", "- title: string"],
-            methods: ["+ save(): void", "+ load(path: string): boolean"],
-        },
-    ]);
+    const state = useDiagramState();
 
-    const [views, setViews] = useState<NodeView[]>([
-        { id: "class-1", x: 100, y: 100, width: DEFAULT_NODE_W, height: DEFAULT_NODE_H },
-    ]);
-
-    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const persistence = useDiagramPersistence({
+        classes: state.classes,
+        setClasses: state.setClasses,
+        viewsById: state.viewsById,
+        setViewsById: state.setViewsById,
+        relations: state.relations,
+        setRelations: state.setRelations,
+        setSelectedId: state.setSelectedId,
+    });
 
     const cameraApi = useCamera(svgRef);
 
-    const viewsById = useMemo(() => {
-        const map: Record<string, NodeView> = {};
-        for (const v of views) map[v.id] = v;
-        return map;
-    }, [views]);
-
-    const selectedClass = useMemo(
-        () => (selectedId ? classes.find(c => c.id === selectedId) ?? null : null),
-        [classes, selectedId]
-    );
-
-    const selectedView = useMemo(
-        () => (selectedId ? viewsById[selectedId] ?? null : null),
-        [viewsById, selectedId]
-    );
-
     const editApi = useInlineEdit({
-        selectedId,
-        classes,
-        setClasses,
+        selectedId: state.selectedId,
+        classes: state.classes,
+        setClasses: state.setClasses,
+    });
+
+    const relApi = useRelationCreation({
+        viewsById: state.viewsById,
+        relations: state.relations,
+        setRelations: state.setRelations,
+        disabled: editApi.editingName || editApi.isEditingLine,
     });
 
     const nodeManip = useNodeManipulation({
         svgRef,
         camera: cameraApi.camera,
-        getViewById: (id: string) => viewsById[id],
-        setViews,
-        disabled: editApi.editingName || editApi.isEditingLine,
+        getViewById: (id: string) => state.viewsById[id],
+        setViewsById: state.setViewsById,
+        disabled: (editApi.editingName || editApi.isEditingLine) || relApi.mode,
     });
-
-    const ctxMenu = useContextMenu({
-        classes,
-        onAction: onContextAction,
-    });
-
-    const attrsCount = selectedClass ? getAttrsCount(selectedClass.attributes.length) : 0;
-    const methodsStartY = getMethodsStartY(attrsCount);
 
     function focusRoot() {
         rootRef.current?.focus();
@@ -91,160 +73,82 @@ export default function DiagramCanvas() {
         return { sx: e.clientX - rect.left, sy: e.clientY - rect.top };
     }
 
-    function newId() {
-        // pas besoin de lib : unique dans la session
-        return `class-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    }
+    const ctxMenu = useContextMenu({
+        classes: state.classes,
+        relations: state.relations,
+        onAction: (a) => actions.onContextAction(a),
+    });
 
-    function createClassAtWorld(worldX: number, worldY: number) {
-        const id = newId();
+    function applySnapshot(s: DiagramSnapshotV2) {
+        state.setClasses(s.classes);
+        state.setViewsById(s.viewsById);
+        state.setRelations(s.relations);
 
-        const newClass: UmlClass = {
-            id,
-            name: "NewClass",
-            attributes: [],
-            methods: [],
-        };
+        state.setSelectedId(null);
+        state.setSelectedRelationId(null);
 
-        const newView: NodeView = {
-            id,
-            x: worldX,
-            y: worldY,
-            width: DEFAULT_NODE_W,
-            height: DEFAULT_NODE_H,
-        };
-
-        setClasses(cs => [...cs, newClass]);
-        setViews(vs => [...vs, newView]);
-        setSelectedId(id);
-
-        editApi.stopEditName();
+        ctxMenu.close();
+        relApi.cancel();
         editApi.cancelLineEdit();
+        editApi.cancelNameEdit();
     }
 
-    function deleteSelected() {
-        if (!selectedId) return;
+    const undoApi = useUndoRedo({
+        getSnapshot: () => makeSnapshot(state.classes, state.viewsById, state.relations),
+        applySnapshot,
+    });
 
-        const id = selectedId;
+    const actions = useDiagramActions({
+        state,
+        undo: { pushSnapshot: undoApi.pushSnapshot },
+        edit: editApi,
+        rel: { mode: relApi.mode, setKind: relApi.setKind, cancel: relApi.cancel },
+        ctxMenu,
+        persistence,
+    });
 
-        editApi.commitLineEdit();
-        editApi.stopEditName();
+    const input = useDiagramInput({
+        svgRef,
+        focusRoot,
+        getLocalScreenPointFromMouseEvent,
+        state,
+        cameraApi,
+        nodeManip,
+        relApi,
+        editApi,
+        undoApi,
+        ctxMenu,
+        makeSnapshot: () => makeSnapshot(state.classes, state.viewsById, state.relations),
+        actions: {
+            deleteSelected: actions.deleteSelected,
+            setRelationKindOnSelected: actions.setRelationKindOnSelected,
+            editSelectedRelationLabel: actions.editSelectedRelationLabel,
+        },
+    });
 
-        setClasses(cs => cs.filter(c => c.id !== id));
-        setViews(vs => vs.filter(v => v.id !== id));
-        setSelectedId(null);
-    }
-
-    function onContextAction(a: ContextAction) {
-        if (a.type === "create_class") {
-            createClassAtWorld(a.worldX, a.worldY);
-            return;
-        }
-        if (a.type === "delete_class") {
-            if (selectedId !== a.id) setSelectedId(a.id);
-            // supprime by id
-            editApi.commitLineEdit();
-            editApi.stopEditName();
-            setClasses(cs => cs.filter(c => c.id !== a.id));
-            setViews(vs => vs.filter(v => v.id !== a.id));
-            setSelectedId(prev => (prev === a.id ? null : prev));
-            return;
-        }
-        if (a.type === "rename_class") {
-            setSelectedId(a.id);
-            editApi.startEditName();
-            return;
-        }
-    }
-
-    function onBackgroundMouseDown(e: MouseEvent<SVGRectElement>) {
-        if (e.button !== 0) return;
-
-        ctxMenu.close();
-
-        focusRoot();
-
-        editApi.commitLineEdit();
-        editApi.stopEditName();
-        setSelectedId(null);
-
-        cameraApi.beginPan(e);
-    }
-
-    function onBackgroundContextMenu(e: MouseEvent<SVGRectElement>) {
-        e.preventDefault();
-        focusRoot();
-
-        const { sx, sy } = getLocalScreenPointFromMouseEvent(e);
-        const world = screenToWorld(sx, sy, cameraApi.camera);
-
-        // menu écran = e.clientX / e.clientY
-        ctxMenu.show({ x: e.clientX, y: e.clientY }, { kind: "background", worldX: world.x, worldY: world.y });
-    }
-
-    function onNodeMouseDown(id: string, e: MouseEvent) {
-        ctxMenu.close();
-
-        e.stopPropagation();
-        focusRoot();
-
-        setSelectedId(id);
-        nodeManip.startDrag(id, e);
-    }
-
-    function onResizeStart(id: string, handle: ResizeHandle, e: MouseEvent) {
-        e.stopPropagation();
-        focusRoot();
-
-        setSelectedId(id);
-        nodeManip.startResize(id, handle, e);
-    }
-
-    function onMouseMove(e: MouseEvent<SVGSVGElement>) {
-        if (ctxMenu.open) return;
-
-        const usedByNode = nodeManip.onMouseMove(e);
-        if (usedByNode) return;
-
-        cameraApi.panMove(e);
-    }
-
-    function onMouseUp() {
-        cameraApi.endPan();
-        nodeManip.stop();
-    }
-
-    function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-        if (e.key === "Delete") {
-            if (editApi.editingName || editApi.isEditingLine) return;
-            e.preventDefault();
-            deleteSelected();
-        }
-    }
+    const attrsCount = state.selectedClass ? getAttrsCount(state.selectedClass.attributes.length) : 0;
+    const methodsStartY = getMethodsStartY(attrsCount);
 
     return (
         <div
             ref={rootRef}
             tabIndex={0}
-            onKeyDown={onKeyDown}
-            onContextMenuCapture={(e) => {
-                // neutralise le menu natif Tauri partout
-                e.preventDefault();
-            }}
+            onKeyDown={input.onKeyDown}
+            onContextMenuCapture={(e) => e.preventDefault()}
             style={{ width: "100%", height: "100%", outline: "none" }}
         >
-        <svg
+            <svg
                 ref={svgRef}
                 width="100%"
                 height="100%"
                 style={{
                     display: "block",
-                    cursor: cameraApi.isPanning ? "grabbing" : "default",
+                    cursor: cameraApi.isPanning ? "grabbing" : (relApi.mode ? "crosshair" : "default"),
                     userSelect: "none",
                 }}
-                onMouseMove={onMouseMove}
-                onMouseUp={onMouseUp}
-                onMouseLeave={onMouseUp}
+                onMouseMove={input.onMouseMove}
+                onMouseUp={input.onMouseUp}
+                onMouseLeave={input.onMouseUp}
                 onWheel={(e) => {
                     if (ctxMenu.open) { e.preventDefault(); return; }
                     cameraApi.onWheel(e);
@@ -256,19 +160,69 @@ export default function DiagramCanvas() {
                     width="100%"
                     height="100%"
                     fill="transparent"
-                    onMouseDown={onBackgroundMouseDown}
-                    onContextMenu={onBackgroundContextMenu}
+                    onMouseDown={input.onBackgroundMouseDown}
+                    onContextMenu={input.onBackgroundContextMenu}
                 />
 
                 <g transform={`translate(${cameraApi.camera.x}, ${cameraApi.camera.y}) scale(${cameraApi.camera.scale})`}>
                     <Grid width={2000} height={2000} scale={cameraApi.camera.scale} />
                     <Axes />
 
-                    {classes.map(c => {
-                        const v = viewsById[c.id];
+                    <RelationLayer
+                        relations={state.relations}
+                        viewsById={state.viewsById}
+                        selectedRelationId={state.selectedRelationId}
+                        onSelectRelation={(id) => {
+                            state.setSelectedRelationId(id);
+                            state.setSelectedId(null);
+                            ctxMenu.close();
+                        }}
+                        onContextMenuRelation={({ id, clientX, clientY }) => {
+                            if (!svgRef.current) return;
+
+                            const rect = svgRef.current.getBoundingClientRect();
+                            const sx = clientX - rect.left;
+                            const sy = clientY - rect.top;
+                            const world = screenToWorld(sx, sy, cameraApi.camera);
+
+                            state.setSelectedRelationId(id);
+                            state.setSelectedId(null);
+
+                            ctxMenu.show(
+                                { x: clientX, y: clientY },
+                                { kind: "relation", id, worldX: world.x, worldY: world.y }
+                            );
+                        }}
+                    />
+
+                    {relApi.previewLine && (
+                        <line
+                            x1={relApi.previewLine.a.x}
+                            y1={relApi.previewLine.a.y}
+                            x2={relApi.previewLine.b.x}
+                            y2={relApi.previewLine.b.y}
+                            stroke="#6aa9ff"
+                            strokeWidth={2}
+                            strokeDasharray="6 4"
+                            pointerEvents="none"
+                        />
+                    )}
+
+                    {state.classes.map(c => {
+                        const v = state.viewsById[c.id];
                         if (!v) return null;
 
-                        const isSelected = selectedId === c.id;
+                        const isSelected = state.selectedId === c.id;
+
+                        const displayName = isSelected && editApi.editingName ? editApi.nameBuffer : c.name;
+                        const displayAttributes =
+                            isSelected && editApi.editingAttrIndex !== null
+                                ? c.attributes.map((a, idx) => (idx === editApi.editingAttrIndex ? editApi.editBuffer : a))
+                                : c.attributes;
+                        const displayMethods =
+                            isSelected && editApi.editingMethodIndex !== null
+                                ? c.methods.map((m, idx) => (idx === editApi.editingMethodIndex ? editApi.editBuffer : m))
+                                : c.methods;
 
                         return (
                             <ClassNode
@@ -277,59 +231,85 @@ export default function DiagramCanvas() {
                                 y={v.y}
                                 width={v.width}
                                 height={v.height}
-                                name={c.name}
-                                attributes={c.attributes}
-                                methods={c.methods}
+                                name={displayName}
+                                attributes={displayAttributes}
+                                methods={displayMethods}
                                 selected={isSelected}
                                 editing={isSelected && editApi.editingName}
-                                onMouseDown={e => onNodeMouseDown(c.id, e)}
-                                onResizeStart={(handle, e) => onResizeStart(c.id, handle, e)}
+                                onMouseDown={e => input.onNodeMouseDown(c.id, e)}
+                                onResizeStart={(handle, e) => input.onResizeStart(c.id, handle, e)}
                                 onDoubleClickName={() => {
-                                    setSelectedId(c.id);
-                                    editApi.startEditName();
+                                    if (relApi.mode) return;
+                                    state.setSelectedId(c.id);
+                                    state.setSelectedRelationId(null);
+                                    requestAnimationFrame(() => editApi.startEditName());
                                 }}
-                                onNameChange={editApi.onNameChange}
+                                onSelect={e => input.onNodeSelectOnly(c.id, e)}
                                 onDoubleClickAttribute={i => {
-                                    setSelectedId(c.id);
-                                    editApi.startEditAttribute(i);
+                                    if (relApi.mode) return;
+                                    state.setSelectedId(c.id);
+                                    state.setSelectedRelationId(null);
+                                    requestAnimationFrame(() => editApi.startEditAttribute(i));
                                 }}
                                 onDoubleClickMethod={i => {
-                                    setSelectedId(c.id);
-                                    editApi.startEditMethod(i);
+                                    if (relApi.mode) return;
+                                    state.setSelectedId(c.id);
+                                    state.setSelectedRelationId(null);
+                                    requestAnimationFrame(() => editApi.startEditMethod(i));
                                 }}
                                 onContextMenu={(e) => {
-                                    // ClassNode fait déjà preventDefault/stopPropagation, mais on sécurise.
                                     e.preventDefault();
                                     e.stopPropagation();
                                     focusRoot();
 
+                                    cameraApi.allowPan(false);
+
                                     const { sx, sy } = getLocalScreenPointFromMouseEvent(e);
                                     const world = screenToWorld(sx, sy, cameraApi.camera);
 
-                                    setSelectedId(c.id);
-                                    ctxMenu.show({ x: e.clientX, y: e.clientY }, { kind: "class", id: c.id, worldX: world.x, worldY: world.y });
+                                    state.setSelectedId(c.id);
+                                    state.setSelectedRelationId(null);
+
+                                    ctxMenu.show(
+                                        { x: e.clientX, y: e.clientY },
+                                        { kind: "class", id: c.id, worldX: world.x, worldY: world.y }
+                                    );
                                 }}
                             />
                         );
                     })}
 
-                    {selectedView && (
+                    {state.selectedView && state.selectedClass && (
                         <InlineEditors
-                            x={selectedView.x}
-                            y={selectedView.y}
-                            width={selectedView.width}
+                            x={state.selectedView.x}
+                            y={state.selectedView.y}
+                            width={state.selectedView.width}
                             editingAttrIndex={editApi.editingAttrIndex}
                             editingMethodIndex={editApi.editingMethodIndex}
+                            editingName={editApi.editingName}
+                            nameValue={editApi.nameBuffer}
+                            onNameChange={editApi.setNameBuffer}
                             attrStartY={NODE_ATTR_START_Y}
                             methodsStartY={methodsStartY}
                             editBuffer={editApi.editBuffer}
                             setEditBuffer={editApi.setEditBuffer}
-                            commit={editApi.commitLineEdit}
-                            cancel={editApi.cancelLineEdit}
+                            commitLine={() => {
+                                if (!editApi.isEditingLine) return;
+                                undoApi.pushSnapshot();
+                                editApi.commitLineEdit();
+                            }}
+                            commitName={() => {
+                                if (!editApi.editingName) return;
+                                undoApi.pushSnapshot();
+                                editApi.commitNameEdit();
+                            }}
+                            cancelLine={editApi.cancelLineEdit}
+                            cancelName={editApi.cancelNameEdit}
                         />
                     )}
                 </g>
             </svg>
+
             <ContextMenu
                 open={ctxMenu.open}
                 x={ctxMenu.x}

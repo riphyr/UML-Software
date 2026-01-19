@@ -1,3 +1,4 @@
+import React from "react";
 import {
     NODE_ATTR_START_Y,
     NODE_HEADER_HEIGHT,
@@ -22,10 +23,10 @@ type Props = {
     selected: boolean;
     editing: boolean;
 
-    onMouseDown?: (e: React.MouseEvent) => void;
+    onMouseDown?: (e: React.MouseEvent) => void;     // drag (fond)
+    onSelect?: (e: React.MouseEvent) => void;        // select-only (zones texte)
     onDoubleClickName?: () => void;
-    onNameChange?: (value: string) => void;
-
+    onNameChange?: (value: string) => void;          // (plus utilisé ici, gardé si tu veux)
     onResizeStart?: (handle: Handle, e: React.MouseEvent) => void;
 
     onDoubleClickAttribute?: (index: number) => void;
@@ -48,8 +49,8 @@ export default function ClassNode({
                                       selected,
                                       editing,
                                       onMouseDown,
+                                      onSelect,
                                       onDoubleClickName,
-                                      onNameChange,
                                       onResizeStart,
                                       onDoubleClickAttribute,
                                       onDoubleClickMethod,
@@ -86,7 +87,7 @@ export default function ClassNode({
                 </clipPath>
             </defs>
 
-            {/* Fond */}
+            {/* Fond (drag) */}
             <rect
                 width={width}
                 height={height}
@@ -96,22 +97,20 @@ export default function ClassNode({
                     if (editing) return;
                     onMouseDown?.(e);
                 }}
-                onContextMenu={e => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onContextMenu?.(e);
-                }}
                 style={{ cursor: editing ? "default" : "move" }}
             />
 
-            {/* Header hitbox */}
+            {/* Header hitbox (select + doubleclick edit) */}
             <rect
                 x={0}
                 y={0}
                 width={width}
                 height={NODE_HEADER_HEIGHT}
                 fill="transparent"
-                onMouseDown={e => e.stopPropagation()}
+                onMouseDown={e => {
+                    e.stopPropagation();
+                    onSelect?.(e);
+                }}
                 onDoubleClick={e => {
                     e.stopPropagation();
                     onDoubleClickName?.();
@@ -124,52 +123,18 @@ export default function ClassNode({
                 <line x1={0} y1={NODE_HEADER_HEIGHT} x2={width} y2={NODE_HEADER_HEIGHT} stroke="#3a4155" />
                 <line x1={0} y1={methodsSeparatorY} x2={width} y2={methodsSeparatorY} stroke="#3a4155" />
 
-                {/* Nom */}
-                {!editing && (
-                    <text
-                        x={PADDING_X}
-                        y={NODE_HEADER_HEIGHT / 2}
-                        dominantBaseline="middle"
-                        fontSize={14}
-                        fill="#e6e6e6"
-                        fontFamily="Inter, system-ui, sans-serif"
-                        style={{ pointerEvents: "none", userSelect: "none" as const }}
-                    >
-                        {name}
-                    </text>
-                )}
-
-                {editing && (
-                    <foreignObject x={4} y={4} width={width - 8} height={20}>
-                        <input
-                            autoFocus
-                            value={name}
-                            onChange={e => onNameChange?.(e.target.value)}
-                            onKeyDown={e => {
-                                if (e.key === "Enter" || e.key === "Escape") {
-                                    (e.currentTarget as HTMLInputElement).blur();
-                                }
-                            }}
-                            spellCheck={false}
-                            autoCorrect="off"
-                            autoCapitalize="off"
-                            inputMode="text"
-                            style={{
-                                width: "100%",
-                                height: "100%",
-                                background: "#141824",
-                                color: "#e6e6e6",
-                                border: "1px solid #6aa9ff",
-                                borderRadius: 4,
-                                fontSize: 14,
-                                padding: "0 4px",
-                                boxSizing: "border-box",
-                                outline: "none",
-                                fontFamily: "Inter, system-ui, sans-serif",
-                            }}
-                        />
-                    </foreignObject>
-                )}
+                {/* Nom (TOUJOURS en SVG, jamais d'input ici) */}
+                <text
+                    x={PADDING_X}
+                    y={NODE_HEADER_HEIGHT / 2}
+                    dominantBaseline="middle"
+                    fontSize={14}
+                    fill="#e6e6e6"
+                    fontFamily="Inter, system-ui, sans-serif"
+                    style={{ pointerEvents: "none", userSelect: "none" as const }}
+                >
+                    {name}
+                </text>
 
                 {/* Attributs (hitbox par ligne) */}
                 {attrs.map((a, i) => {
@@ -183,6 +148,10 @@ export default function ClassNode({
                                 width={width}
                                 height={NODE_LINE_HEIGHT}
                                 fill="transparent"
+                                onMouseDown={e => {
+                                    e.stopPropagation();
+                                    onSelect?.(e);
+                                }}
                                 onDoubleClick={e => {
                                     e.stopPropagation();
                                     onDoubleClickAttribute?.(i);
@@ -216,6 +185,10 @@ export default function ClassNode({
                                 width={width}
                                 height={NODE_LINE_HEIGHT}
                                 fill="transparent"
+                                onMouseDown={e => {
+                                    e.stopPropagation();
+                                    onSelect?.(e);
+                                }}
                                 onDoubleClick={e => {
                                     e.stopPropagation();
                                     onDoubleClickMethod?.(i);

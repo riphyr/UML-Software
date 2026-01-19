@@ -9,6 +9,7 @@ export function useInlineEdit(params: {
     const { selectedId, classes, setClasses } = params;
 
     const [editingName, setEditingName] = useState(false);
+    const [nameBuffer, setNameBuffer] = useState("");
 
     const [editingAttrIndex, setEditingAttrIndex] = useState<number | null>(null);
     const [editingMethodIndex, setEditingMethodIndex] = useState<number | null>(null);
@@ -21,9 +22,9 @@ export function useInlineEdit(params: {
         return classes.find(c => c.id === selectedId) ?? null;
     }
 
-    // Si on change de sélection, on coupe toute édition en cours (évite les edits sur la mauvaise classe)
     useEffect(() => {
         setEditingName(false);
+        setNameBuffer("");
         setEditingAttrIndex(null);
         setEditingMethodIndex(null);
         setEditBuffer("");
@@ -31,18 +32,27 @@ export function useInlineEdit(params: {
 
     function startEditName() {
         if (!selectedId) return;
+
+        const c = getSelectedClass();
+        if (!c) return;
+
         setEditingAttrIndex(null);
         setEditingMethodIndex(null);
         setEditingName(true);
+        setNameBuffer(c.name);
     }
 
-    function stopEditName() {
+    function commitNameEdit() {
+        if (!selectedId) return;
+        if (!editingName) return;
+
+        setClasses(cs => cs.map(c => (c.id === selectedId ? { ...c, name: nameBuffer } : c)));
         setEditingName(false);
     }
 
-    function onNameChange(value: string) {
-        if (!selectedId) return;
-        setClasses(cs => cs.map(c => (c.id === selectedId ? { ...c, name: value } : c)));
+    function cancelNameEdit() {
+        setEditingName(false);
+        setNameBuffer("");
     }
 
     function startEditAttribute(index: number) {
@@ -108,8 +118,10 @@ export function useInlineEdit(params: {
         editingName,
         setEditingName,
         startEditName,
-        stopEditName,
-        onNameChange,
+        nameBuffer,
+        setNameBuffer,
+        commitNameEdit,
+        cancelNameEdit,
 
         editingAttrIndex,
         editingMethodIndex,

@@ -1,5 +1,5 @@
 export type NodeView = {
-    id: string;      // référence UmlClass.id
+    id: string;
     x: number;
     y: number;
     width: number;

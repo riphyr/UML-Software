@@ -1,4 +1,5 @@
-import { NODE_LINE_HEIGHT } from "../nodes/layout";
+import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { NODE_LINE_HEIGHT, NODE_HEADER_HEIGHT } from "../nodes/layout";
 
 type Props = {
     x: number;
@@ -8,82 +9,369 @@ type Props = {
     editingAttrIndex: number | null;
     editingMethodIndex: number | null;
 
+    editingName: boolean;
+    nameValue: string;
+    onNameChange: (v: string) => void;
+
     attrStartY: number;
     methodsStartY: number;
 
     editBuffer: string;
     setEditBuffer: (v: string) => void;
 
-    commit: () => void;
-    cancel: () => void;
+    commitLine: () => void;
+    cancelLine: () => void;
+
+    commitName: () => void;
+    cancelName: () => void;
 };
 
-export default function InlineEditors({
-                                          x,
-                                          y,
-                                          width,
-                                          editingAttrIndex,
-                                          editingMethodIndex,
-                                          attrStartY,
-                                          methodsStartY,
-                                          editBuffer,
-                                          setEditBuffer,
-                                          commit,
-                                          cancel,
-                                      }: Props) {
+const TEXT_PADDING_X = 8;   // doit matcher ClassNode
+const BORDER_EXTRA_X = 4;
+const BORDER_HEIGHT = 18;
+const BORDER_Y_OFFSET = -1;
+
+const BORDER_COLOR = "#6aa9ff";
+const CARET_COLOR = "#e6e6e6";
+
+const IDLE_MS = 500;
+
+// Pour assurer une bbox stable (ascent/descent) quelle que soit la valeur éditée.
+const METRICS_SAMPLE = "Hg";
+// Pour éviter certains comportements SVG “texte vide” (bbox 0 / substring errors).
+const ZERO_WIDTH = "\u200b";
+const NBSP = "\u00A0";
+
+export default function InlineEditors(props: Props) {
+    const {
+        x,
+        y,
+        width,
+        editingAttrIndex,
+        editingMethodIndex,
+        editingName,
+        nameValue,
+        onNameChange,
+        attrStartY,
+        methodsStartY,
+        editBuffer,
+        setEditBuffer,
+        commitLine,
+        cancelLine,
+        commitName,
+        cancelName,
+    } = props;
+
+    const inputRef = useRef<HTMLInputElement | null>(null);
+
+    // Mesure X (substring length)
+    const measureXRef = useRef<SVGTextElement | null>(null);
+    // Mesure Y (bbox stable)
+    const metricsYRef = useRef<SVGTextElement | null>(null);
+
+    const [caretIndex, setCaretIndex] = useState(0);
+    const [caretX, setCaretX] = useState<number | null>(null);
+    const [caretY1, setCaretY1] = useState<number | null>(null);
+    const [caretY2, setCaretY2] = useState<number | null>(null);
+
+    const [selStart, setSelStart] = useState(0);
+    const [selEnd, setSelEnd] = useState(0);
+
+    const [idle, setIdle] = useState(false);
+    const idleTimerRef = useRef<number | null>(null);
+
+    const mode = useMemo<"name" | "attr" | "method" | null>(() => {
+        if (editingName) return "name";
+        if (editingAttrIndex !== null) return "attr";
+        if (editingMethodIndex !== null) return "method";
+        return null;
+    }, [editingName, editingAttrIndex, editingMethodIndex]);
+
+    const activeValue = mode === "name" ? nameValue : editBuffer;
+
+    const fontSize = mode === "name" ? 14 : 12;
+
+    const lineTop = useMemo(() => {
+        if (mode === "name") return y;
+        if (mode === "attr") return y + attrStartY + (editingAttrIndex as number) * NODE_LINE_HEIGHT;
+        if (mode === "method") return y + methodsStartY + (editingMethodIndex as number) * NODE_LINE_HEIGHT;
+        return null;
+    }, [mode, y, attrStartY, methodsStartY, editingAttrIndex, editingMethodIndex]);
+
+    const lineHeight = mode === "name" ? NODE_HEADER_HEIGHT : NODE_LINE_HEIGHT;
+
+    const textX = x + TEXT_PADDING_X;
+    const boxX = x + TEXT_PADDING_X - BORDER_EXTRA_X;
+    const boxW = width - 2 * TEXT_PADDING_X + 2 * BORDER_EXTRA_X;
+    const boxY = (lineTop ?? 0) + (lineHeight - BORDER_HEIGHT) / 2 + BORDER_Y_OFFSET;
+
+    function clearIdleTimer() {
+        if (idleTimerRef.current !== null) {
+            window.clearTimeout(idleTimerRef.current);
+            idleTimerRef.current = null;
+        }
+    }
+
+    function bumpActivity() {
+        setIdle(false);
+        clearIdleTimer();
+        idleTimerRef.current = window.setTimeout(() => setIdle(true), IDLE_MS) as unknown as number;
+    }
+
+    function syncFromInput() {
+        const el = inputRef.current;
+        if (!el) return;
+
+        const a = el.selectionStart ?? 0;
+        const b = el.selectionEnd ?? a;
+
+        setSelStart(a);
+        setSelEnd(b);
+        setCaretIndex(b);
+    }
+
+    useLayoutEffect(() => {
+        if (mode === null || lineTop === null) return;
+
+        bumpActivity();
+
+        requestAnimationFrame(() => {
+            const el = inputRef.current;
+            if (!el) return;
+
+            el.focus();
+
+            const end = el.value.length;
+            try {
+                el.setSelectionRange(end, end);
+            } catch {
+                // ignore
+            }
+            syncFromInput();
+        });
+
+        return () => clearIdleTimer();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mode, lineTop]);
+
+    // calc caret X/Y automatiquement, cohérent vide/non vide
+    useLayoutEffect(() => {
+        if (mode === null || lineTop === null) return;
+
+        // X
+        const tx = measureXRef.current;
+        if (tx) {
+            if (activeValue.length === 0) {
+                setCaretX(textX);
+            } else {
+                let wCaret = 0;
+                try {
+                    wCaret = tx.getSubStringLength(0, Math.max(0, Math.min(caretIndex, activeValue.length)));
+                } catch {
+                    try {
+                        wCaret = tx.getComputedTextLength();
+                    } catch {
+                        wCaret = 0;
+                    }
+                }
+                setCaretX(textX + wCaret);
+            }
+        } else {
+            setCaretX(null);
+        }
+
+        // Y (stable, indépendant du contenu)
+        const ty = metricsYRef.current;
+        if (ty) {
+            try {
+                const bb = ty.getBBox();
+                setCaretY1(bb.y + 1);
+                setCaretY2(bb.y + bb.height - 1);
+            } catch {
+                setCaretY1(null);
+                setCaretY2(null);
+            }
+        } else {
+            setCaretY1(null);
+            setCaretY2(null);
+        }
+    }, [mode, lineTop, lineHeight, caretIndex, activeValue, textX]);
+
+    function commit() {
+        if (mode === "name") commitName();
+        else commitLine();
+    }
+    function cancel() {
+        if (mode === "name") cancelName();
+        else cancelLine();
+    }
+
     const inputStyle: React.CSSProperties = {
         width: "100%",
         height: "100%",
-        background: "#141824",
-        color: "#e6e6e6",
-        border: "1px solid #6aa9ff",
-        borderRadius: 4,
-        fontSize: 12,
-        padding: "0 4px",
-        boxSizing: "border-box",
+        border: "none",
         outline: "none",
+        background: "transparent",
+        padding: 0,
+        margin: 0,
+
+        color: "transparent",
+        caretColor: "transparent",
+
         fontFamily: "Inter, system-ui, sans-serif",
+        fontSize,
+        lineHeight: `${lineHeight}px`,
+        boxSizing: "border-box",
     };
 
-    const commonInputProps = {
-        autoFocus: true,
-        value: editBuffer,
-        onChange: (e: React.ChangeEvent<HTMLInputElement>) => setEditBuffer(e.target.value),
-        onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
-            if (e.key === "Enter") commit();
-            if (e.key === "Escape") cancel();
-        },
-        onBlur: commit,
-        spellCheck: false,
-        autoCorrect: "off" as const,
-        autoCapitalize: "off" as const,
-        inputMode: "text" as const,
-        style: inputStyle,
-    };
+    function onInputChange(v: string) {
+        bumpActivity();
+        if (mode === "name") onNameChange(v);
+        else setEditBuffer(v);
+        requestAnimationFrame(syncFromInput);
+    }
+
+    function onInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+        bumpActivity();
+
+        if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+            return;
+        }
+        if (e.key === "Escape") {
+            e.preventDefault();
+            cancel();
+            return;
+        }
+
+        requestAnimationFrame(syncFromInput);
+    }
+
+    if (mode === null || lineTop === null) return null;
+
+    const hasSelection = selEnd > selStart;
+
+    const measureValue = activeValue.length === 0 ? ZERO_WIDTH : activeValue.replace(/ /g, NBSP);
+
+    // sélection SVG (x start/end) via mesureXRef
+    let selX1: number | null = null;
+    let selX2: number | null = null;
+    try {
+        const t = measureXRef.current;
+        if (t) {
+            const a = Math.max(0, Math.min(selStart, measureValue.length));
+            const b = Math.max(0, Math.min(selEnd, measureValue.length));
+            const wa = a === 0 ? 0 : t.getSubStringLength(0, a);
+            const wb = b === 0 ? 0 : t.getSubStringLength(0, b);
+            selX1 = textX + wa;
+            selX2 = textX + wb;
+        }
+    } catch {
+        selX1 = null;
+        selX2 = null;
+    }
 
     return (
         <>
-            {editingAttrIndex !== null && (
-                <foreignObject
-                    x={x + 4}
-                    y={y + attrStartY + editingAttrIndex * NODE_LINE_HEIGHT}
-                    width={width - 8}
-                    height={NODE_LINE_HEIGHT}
-                >
-                    <input {...commonInputProps} />
-                </foreignObject>
+            <style>{`
+@keyframes caretBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.inline-edit-input::selection { background: transparent; color: transparent; }
+.inline-edit-input::-moz-selection { background: transparent; color: transparent; }
+            `}</style>
+
+            {/* Bordure */}
+            <rect
+                x={boxX}
+                y={boxY}
+                width={boxW}
+                height={BORDER_HEIGHT}
+                rx={6}
+                fill="transparent"
+                stroke={BORDER_COLOR}
+                strokeWidth={1}
+                pointerEvents="none"
+            />
+
+            {/* Texte invisible pour mesurer X (substring). Si vide -> ZWSP pour stabiliser certains moteurs. */}
+            <text
+                ref={measureXRef}
+                x={textX}
+                y={lineTop + lineHeight / 2}
+                dominantBaseline="middle"
+                fontSize={fontSize}
+                fontFamily="Inter, system-ui, sans-serif"
+                fill="transparent"
+                style={{ userSelect: "none" as const, pointerEvents: "none" }}
+            >
+                {measureValue}
+            </text>
+
+            {/* Texte invisible pour mesurer Y (bbox stable), indépendant du contenu. */}
+            <text
+                ref={metricsYRef}
+                x={textX}
+                y={lineTop + lineHeight / 2}
+                dominantBaseline="middle"
+                fontSize={fontSize}
+                fontFamily="Inter, system-ui, sans-serif"
+                fill="transparent"
+                style={{ userSelect: "none" as const, pointerEvents: "none" }}
+            >
+                {METRICS_SAMPLE}
+            </text>
+
+            {/* Sélection SVG */}
+            {hasSelection && selX1 !== null && selX2 !== null && caretY1 !== null && caretY2 !== null && (
+                <rect
+                    x={Math.min(selX1, selX2)}
+                    y={caretY1}
+                    width={Math.max(1, Math.abs(selX2 - selX1))}
+                    height={Math.max(1, caretY2 - caretY1)}
+                    fill="rgba(106,169,255,0.35)"
+                    pointerEvents="none"
+                    rx={2}
+                />
             )}
 
-            {editingMethodIndex !== null && (
-                <foreignObject
-                    x={x + 4}
-                    y={y + methodsStartY + editingMethodIndex * NODE_LINE_HEIGHT}
-                    width={width - 8}
-                    height={NODE_LINE_HEIGHT}
-                >
-                    <input {...commonInputProps} />
-                </foreignObject>
+            {/* Caret SVG */}
+            {!hasSelection && caretX !== null && caretY1 !== null && caretY2 !== null && (
+                <line
+                    x1={caretX}
+                    x2={caretX}
+                    y1={caretY1}
+                    y2={caretY2}
+                    stroke={CARET_COLOR}
+                    strokeWidth={1}
+                    pointerEvents="none"
+                    style={idle ? { animation: "caretBlink 1s steps(1) infinite" } : undefined}
+                />
             )}
+
+            {/* Input invisible */}
+            <foreignObject x={boxX} y={lineTop} width={boxW} height={lineHeight}>
+                <input
+                    ref={inputRef}
+                    className="inline-edit-input"
+                    autoFocus
+                    value={activeValue}
+                    onChange={(e) => onInputChange(e.target.value)}
+                    onKeyDown={onInputKeyDown}
+                    onKeyUp={() => requestAnimationFrame(syncFromInput)}
+                    onClick={() => requestAnimationFrame(syncFromInput)}
+                    onSelect={() => requestAnimationFrame(syncFromInput)}
+                    onMouseUp={() => requestAnimationFrame(syncFromInput)}
+                    onBlur={commit}
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    inputMode="text"
+                    style={inputStyle}
+                />
+            </foreignObject>
         </>
     );
 }
