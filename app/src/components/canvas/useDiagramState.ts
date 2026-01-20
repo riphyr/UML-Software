@@ -46,7 +46,7 @@ export function useDiagramState(): DiagramStateApi {
     ]);
 
     const [viewsById, setViewsById] = useState<ViewsById>({
-        "class-1": { id: "class-1", x: 100, y: 100, width: DEFAULT_NODE_W, height: DEFAULT_NODE_H },
+        "class-1": { id: "class-1", x: 100, y: 100, width: DEFAULT_NODE_W, height: DEFAULT_NODE_H, sizeMode: "auto" },
     });
 
     const [relations, setRelations] = useState<UmlRelation[]>([]);

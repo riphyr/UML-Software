@@ -13,6 +13,8 @@ import Inspector from "./ui/inspector/Inspector";
 import { NODE_ATTR_START_Y, getAttrsCount, getMethodsStartY } from "./nodes/layout";
 import { screenToWorld } from "../utils/coords";
 import { makeSnapshot, normalizeSnapshot, type DiagramSnapshotV2 } from "../model/diagram";
+import { applyAutoSizeIfNeeded } from "./nodes/autoSize";
+import { updateView } from "../model/views";
 
 import { useCamera } from "./canvas/useCamera";
 import { useNodeManipulation } from "./canvas/useNodeManipulation";
@@ -126,6 +128,7 @@ export default function DiagramCanvas() {
         rel: { mode: relApi.mode, setKind: relApi.setKind, cancel: relApi.cancel },
         ctxMenu: { close: () => ctxMenu.close() },
         persistence,
+        grid: state.grid,
     });
 
     // brancher le vrai handler
@@ -438,6 +441,12 @@ export default function DiagramCanvas() {
                                         { kind: "class", id: c.id, worldX: world.x, worldY: world.y }
                                     );
                                 }}
+                                sizeMode={v.sizeMode ?? "auto"}
+                                disableLockToggle={state.mode === "link"}
+                                onToggleSizeMode={() => {
+                                    if (state.mode === "link") return;
+                                    actions.toggleClassSizeMode(c.id);
+                                }}
                             />
                         );
                     })}
@@ -457,14 +466,57 @@ export default function DiagramCanvas() {
                             editBuffer={editApi.editBuffer}
                             setEditBuffer={editApi.setEditBuffer}
                             commitLine={() => {
-                                if (!editApi.isEditingLine) return;
+                                if (!editApi.isEditingLine || !state.selectedClass) return;
+
                                 undoApi.pushSnapshot();
+
+                                const c = state.selectedClass;
+
                                 editApi.commitLineEdit();
+
+                                // resize auto sur "nouveau contenu" (on reconstruit nextClass avec les buffers)
+                                const nextClass = {
+                                    ...c,
+                                    name: editApi.editingName ? editApi.nameBuffer : c.name,
+                                    attributes:
+                                        editApi.editingAttrIndex !== null
+                                            ? c.attributes.map((a, i) => (i === editApi.editingAttrIndex ? editApi.editBuffer : a))
+                                            : c.attributes,
+                                    methods:
+                                        editApi.editingMethodIndex !== null
+                                            ? c.methods.map((m, i) => (i === editApi.editingMethodIndex ? editApi.editBuffer : m))
+                                            : c.methods,
+                                };
+
+                                state.setViewsById(prev => {
+                                    const patch = applyAutoSizeIfNeeded({
+                                        view: prev[c.id],
+                                        nextClass,
+                                        grid: state.grid,
+                                    });
+                                    return patch ? updateView(prev, c.id, patch) : prev;
+                                });
                             }}
                             commitName={() => {
-                                if (!editApi.editingName) return;
+                                if (!editApi.editingName || !state.selectedClass) return;
+
                                 undoApi.pushSnapshot();
+
+                                const c = state.selectedClass;
+                                const nextName = editApi.nameBuffer;
+
                                 editApi.commitNameEdit();
+
+                                const nextClass = { ...c, name: nextName };
+
+                                state.setViewsById(prev => {
+                                    const patch = applyAutoSizeIfNeeded({
+                                        view: prev[c.id],
+                                        nextClass,
+                                        grid: state.grid,
+                                    });
+                                    return patch ? updateView(prev, c.id, patch) : prev;
+                                });
                             }}
                             cancelLine={editApi.cancelLineEdit}
                             cancelName={editApi.cancelNameEdit}
@@ -489,9 +541,7 @@ export default function DiagramCanvas() {
                     selectedRelation={selectedRelation}
                     getClassNameById={getClassNameById}
                     actions={{
-                        setClassName: actions.setClassName,
-                        setClassAttributes: actions.setClassAttributes,
-                        setClassMethods: actions.setClassMethods,
+                        applyClassEdits: actions.applyClassEdits,
                         setRelationKindOnSelected: actions.setRelationKindOnSelected,
                         setRelationLabelOnSelected: actions.setRelationLabelOnSelected,
                         deleteSelected: actions.deleteSelected,

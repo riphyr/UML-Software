@@ -24,6 +24,11 @@ type Props = {
     selected: boolean;
     editing: boolean;
 
+    // Auto-size
+    sizeMode: "auto" | "locked";
+    disableLockToggle?: boolean;
+    onToggleSizeMode?: () => void;
+
     onMouseDown?: (e: React.MouseEvent) => void;
     onSelect?: (e: React.MouseEvent) => void;
     onHoverStart?: () => void;
@@ -56,6 +61,9 @@ export default function ClassNode({
                                       methods,
                                       selected,
                                       editing,
+                                      sizeMode,
+                                      disableLockToggle,
+                                      onToggleSizeMode,
                                       onMouseDown,
                                       onSelect,
                                       onHoverStart,
@@ -79,8 +87,9 @@ export default function ClassNode({
 
     const clipId = `clip-${x}-${y}`;
 
-    const attrs = attributes.length ? attributes : ["+ attribute: Type"];
-    const mets = methods.length ? methods : ["+ method(): Return"];
+    // IMPORTANT: plus de placeholders "fantômes"
+    const attrs = attributes;
+    const mets = methods;
 
     const attrsCount = getAttrsCount(attributes.length);
     const methodsSeparatorY = getMethodsSeparatorY(attrsCount);
@@ -123,9 +132,17 @@ export default function ClassNode({
         }
     }
 
-    // Côté logique : dès qu'on est "proche" d'un port, on annonce le bestSide.
-    // Le visuel "hot" reste piloté par hoverSide (rayon plus petit).
     const logicalSide: PortSide | null = showPorts && !editing && nearAny ? (bestSide ?? null) : null;
+
+    // Lock toggle (NE) : visible uniquement quand la souris est proche
+    const LOCK_OUT = 14;
+    const lockPoint = { wx: x + width + LOCK_OUT, wy: y - LOCK_OUT, lx: width + LOCK_OUT, ly: -LOCK_OUT };
+    const lockNearR = 30;
+    const lockHotR = 14;
+    const lockDisabled = !!disableLockToggle || editing;
+    const lockDist = mouseWorld ? Math.hypot(mouseWorld.x - lockPoint.wx, mouseWorld.y - lockPoint.wy) : Infinity;
+    const lockNear = !lockDisabled && lockDist <= lockNearR;
+    const lockHot = !lockDisabled && lockDist <= lockHotR;
 
     const lastHoverRef = useRef<PortSide | null>(null);
     useEffect(() => {
@@ -270,7 +287,6 @@ export default function ClassNode({
                 })}
             </g>
 
-            {/* Ports (affichage contextuel) */}
             {showPorts && !editing && nearAny && (hoverSide || bestSide) && (() => {
                 const side = hoverSide ?? bestSide;
                 if (!side) return null;
@@ -302,6 +318,60 @@ export default function ClassNode({
                         />
                         <line x1={-3.5} y1={0} x2={3.5} y2={0} stroke="#cfd6e6" strokeWidth={1.5} opacity={opacity} />
                         <line x1={0} y1={-3.5} x2={0} y2={3.5} stroke="#cfd6e6" strokeWidth={1.5} opacity={opacity} />
+                    </g>
+                );
+            })()}
+
+            {lockNear && (() => {
+                const isLocked = sizeMode === "locked";
+                const opacity = lockHot ? 0.92 : 0.32;
+                const scale = lockHot ? 1.12 : 1.0;
+                const r = 7;
+
+                return (
+                    <g
+                        transform={`translate(${lockPoint.lx}, ${lockPoint.ly}) scale(${scale})`}
+                        onMouseDown={(e) => {
+                            if (!lockHot) return;
+                            if (!onToggleSizeMode) return;
+                            e.stopPropagation();
+                            onToggleSizeMode();
+                        }}
+                        style={{ cursor: lockHot ? "pointer" : "default" }}
+                    >
+                        <circle
+                            cx={0}
+                            cy={0}
+                            r={r}
+                            fill="#cfd6e61a"
+                            stroke={isLocked ? "#6aa9ff" : "#cfd6e6"}
+                            strokeWidth={1.5}
+                            opacity={opacity}
+                        />
+
+                        {isLocked ? (
+                            <>
+                                <rect x={-3.2} y={-0.5} width={6.4} height={5.2} rx={1.2} fill="#cfd6e6" opacity={opacity} />
+                                <path
+                                    d="M -2.2 -0.5 v -1.0 c 0 -1.6 1.0 -2.6 2.2 -2.6 s 2.2 1.0 2.2 2.6 v 1.0"
+                                    fill="none"
+                                    stroke="#cfd6e6"
+                                    strokeWidth={1.2}
+                                    opacity={opacity}
+                                />
+                            </>
+                        ) : (
+                            <>
+                                <rect x={-3.2} y={-0.5} width={6.4} height={5.2} rx={1.2} fill="#cfd6e6" opacity={opacity} />
+                                <path
+                                    d="M -2.2 -0.5 v -1.0 c 0 -1.6 1.0 -2.6 2.2 -2.6 c 0.7 0 1.3 0.3 1.7 0.8"
+                                    fill="none"
+                                    stroke="#cfd6e6"
+                                    strokeWidth={1.2}
+                                    opacity={opacity}
+                                />
+                            </>
+                        )}
                     </g>
                 );
             })()}

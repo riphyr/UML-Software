@@ -48,16 +48,20 @@ function normalizeViews(classes: UmlClass[], viewsById: ViewsById): ViewsById {
     const nextViews: ViewsById = {};
     for (const id of ids) {
         const v = (viewsById as any)[id] as NodeView | undefined;
-        if (
+        const validBox =
             v &&
             typeof v.x === "number" &&
             typeof v.y === "number" &&
             typeof v.width === "number" &&
-            typeof v.height === "number"
-        ) {
-            nextViews[id] = v;
+            typeof v.height === "number";
+
+        const rawMode = (v as any)?.sizeMode;
+        const sizeMode: NodeView["sizeMode"] = rawMode === "locked" ? "locked" : "auto";
+
+        if (validBox) {
+            nextViews[id] = { ...v, sizeMode };
         } else {
-            nextViews[id] = { id, x: 100, y: 100, width: 260, height: 150 };
+            nextViews[id] = { id, x: 100, y: 100, width: 260, height: 150, sizeMode: "auto" };
         }
     }
     return nextViews;

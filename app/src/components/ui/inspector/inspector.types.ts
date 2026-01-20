@@ -3,9 +3,7 @@ import type { UmlRelation, RelationKind } from "../../../model/relation";
 
 export type InspectorActions = {
     // class
-    setClassName: (id: string, name: string) => void;
-    setClassAttributes: (id: string, attributes: string[]) => void;
-    setClassMethods: (id: string, methods: string[]) => void;
+    applyClassEdits: (id: string, next: { name: string; attributes: string[]; methods: string[] }) => void;
     duplicateSelected: () => void;
     deleteSelected: () => void;
 

@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type { UmlClass } from "../../model/uml";
 
 export function useInlineEdit(params: {
     selectedId: string | null;
     classes: UmlClass[];
-    setClasses: React.Dispatch<React.SetStateAction<UmlClass[]>>;
+    setClasses: Dispatch<SetStateAction<UmlClass[]>>;
 }) {
     const { selectedId, classes, setClasses } = params;
 
@@ -19,7 +19,7 @@ export function useInlineEdit(params: {
 
     function getSelectedClass(): UmlClass | null {
         if (!selectedId) return null;
-        return classes.find(c => c.id === selectedId) ?? null;
+        return classes.find((c) => c.id === selectedId) ?? null;
     }
 
     useEffect(() => {
@@ -46,7 +46,7 @@ export function useInlineEdit(params: {
         if (!selectedId) return;
         if (!editingName) return;
 
-        setClasses(cs => cs.map(c => (c.id === selectedId ? { ...c, name: nameBuffer } : c)));
+        setClasses((cs) => cs.map((c) => (c.id === selectedId ? { ...c, name: nameBuffer } : c)));
         setEditingName(false);
     }
 
@@ -64,7 +64,9 @@ export function useInlineEdit(params: {
         setEditingName(false);
         setEditingMethodIndex(null);
         setEditingAttrIndex(index);
-        setEditBuffer(c.attributes[index] ?? "");
+
+        // IMPORTANT: fallback si la ligne vient d'être ajoutée mais pas encore reflétée dans `classes`
+        setEditBuffer(c.attributes[index] ?? "+ attr: Type");
     }
 
     function startEditMethod(index: number) {
@@ -76,7 +78,9 @@ export function useInlineEdit(params: {
         setEditingName(false);
         setEditingAttrIndex(null);
         setEditingMethodIndex(index);
-        setEditBuffer(c.methods[index] ?? "");
+
+        // idem fallback
+        setEditBuffer(c.methods[index] ?? "+ method(): Return");
     }
 
     function commitLineEdit() {
@@ -85,8 +89,8 @@ export function useInlineEdit(params: {
 
         if (editingAttrIndex !== null) {
             const idx = editingAttrIndex;
-            setClasses(cs =>
-                cs.map(c =>
+            setClasses((cs) =>
+                cs.map((c) =>
                     c.id === selectedId
                         ? { ...c, attributes: c.attributes.map((a, i) => (i === idx ? editBuffer : a)) }
                         : c
@@ -96,8 +100,8 @@ export function useInlineEdit(params: {
 
         if (editingMethodIndex !== null) {
             const idx = editingMethodIndex;
-            setClasses(cs =>
-                cs.map(c =>
+            setClasses((cs) =>
+                cs.map((c) =>
                     c.id === selectedId
                         ? { ...c, methods: c.methods.map((m, i) => (i === idx ? editBuffer : m)) }
                         : c

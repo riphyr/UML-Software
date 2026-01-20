@@ -7,6 +7,8 @@ import { screenToWorld } from "../../utils/coords";
 
 import type { DiagramStateApi } from "./useDiagramState";
 
+import { updateView } from "../../model/views";
+
 export type ResizeHandle = "nw" | "ne" | "sw" | "se";
 
 type CameraApi = {
@@ -303,6 +305,11 @@ export function useDiagramInput(args: {
         state.setSelectedRelationId(null);
 
         manipStartSnapshotRef.current = makeSnapshot();
+        const cur = state.viewsById[id];
+        const mode = (cur?.sizeMode ?? "auto");
+        if (mode === "auto") {
+            state.setViewsById(prev => updateView(prev, id, { sizeMode: "locked" }));
+        }
         nodeManip.startResize(id, handle, e);
     }
 
@@ -399,6 +406,17 @@ export function useDiagramInput(args: {
     }
 
     function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+        const t = e.target as HTMLElement | null;
+
+        if (
+            t &&
+            (t.tagName === "INPUT" ||
+                t.tagName === "TEXTAREA" ||
+                t.isContentEditable)
+        ) {
+            return;
+        }
+
         if (e.key === "Escape" && relRoutingApi?.isActive) {
             e.preventDefault();
             relRoutingApi.cancel();

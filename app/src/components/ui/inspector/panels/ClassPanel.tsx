@@ -13,9 +13,7 @@ function linesToArray(s: string) {
 
 export default function ClassPanel(p: {
     c: UmlClass;
-    onSetName: (name: string) => void;
-    onSetAttributes: (attrs: string[]) => void;
-    onSetMethods: (methods: string[]) => void;
+    onApply: (next: { name: string; attributes: string[]; methods: string[] }) => void;
     onDelete: () => void;
     onDuplicate: () => void;
 }) {
@@ -87,9 +85,11 @@ export default function ClassPanel(p: {
                         <button
                             type="button"
                             onClick={() => {
-                                p.onSetName(name.trim() || "ClassName");
-                                p.onSetAttributes(linesToArray(attrsText));
-                                p.onSetMethods(linesToArray(methodsText));
+                                p.onApply({
+                                    name: name.trim() || "ClassName",
+                                    attributes: linesToArray(attrsText),
+                                    methods: linesToArray(methodsText),
+                                });
                             }}
                             style={{
                                 padding: "8px 10px",
