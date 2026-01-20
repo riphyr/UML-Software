@@ -1,9 +1,7 @@
 import { useMemo } from "react";
-import type { UmlRelation, RelationPoint } from "../../model/relation";
+import type { PortSide, RelationPoint, UmlRelation } from "../../model/relation";
 import type { ViewsById } from "../../model/views";
 import type { NodeView } from "../../model/view";
-
-type Side = "N" | "E" | "S" | "W";
 
 type Props = {
     relations: UmlRelation[];
@@ -12,47 +10,24 @@ type Props = {
     selectedRelationId: string | null;
     onSelectRelation: (id: string) => void;
 
-    // Reconnect (étape 4)
     onStartReconnect: (args: { id: string; end: "from" | "to" }) => void;
 
-    // Routage (étape 5)
-    getEffectiveControlPoints: (r: UmlRelation) => RelationPoint[];
-    onStartDragControlPoint: (args: { id: string; index: number }) => void;
+    // Waypoints (drag)
+    routing?: {
+        isActive: boolean;
+        relationId: string | null;
+        start: (relationId: string, index: number) => void;
+        // if provided, returns the "effective" points currently used for display
+        // (ex: includes auto-route points, or temporary points while dragging)
+        getEffectiveControlPoints?: (r: UmlRelation) => RelationPoint[];
+    };
 
     onContextMenuRelation: (args: { id: string; clientX: number; clientY: number }) => void;
 };
 
-function center(v: NodeView): RelationPoint {
-    return { x: v.x + v.width / 2, y: v.y + v.height / 2 };
-}
+type Side = PortSide;
 
-function chooseSide(from: NodeView, toPoint: RelationPoint): Side {
-    const c = center(from);
-    const dx = toPoint.x - c.x;
-    const dy = toPoint.y - c.y;
-    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? "E" : "W";
-    return dy >= 0 ? "S" : "N";
-}
-
-function sideMidpoint(v: NodeView, side: Side): RelationPoint {
-    const cx = v.x + v.width / 2;
-    const cy = v.y + v.height / 2;
-    if (side === "N") return { x: cx, y: v.y };
-    if (side === "S") return { x: cx, y: v.y + v.height };
-    if (side === "W") return { x: v.x, y: cy };
-    return { x: v.x + v.width, y: cy };
-}
-
-function autoControlPoints(a: RelationPoint, b: RelationPoint): RelationPoint[] {
-    const sameX = Math.abs(a.x - b.x) < 0.001;
-    const sameY = Math.abs(a.y - b.y) < 0.001;
-    if (sameX || sameY) return [];
-    const midX = (a.x + b.x) / 2;
-    return [
-        { x: midX, y: a.y },
-        { x: midX, y: b.y },
-    ];
-}
+const PORT_OFFSET = 10;
 
 function markerEnd(kind: UmlRelation["kind"]) {
     if (kind === "herit") return "url(#uml-arrow-triangle)";
@@ -65,59 +40,172 @@ function markerStart(kind: UmlRelation["kind"]) {
     return undefined;
 }
 
+function center(v: NodeView): RelationPoint {
+    return { x: v.x + v.width / 2, y: v.y + v.height / 2 };
+}
+
+function sideMidpoint(v: NodeView, side: Side): RelationPoint {
+    const cx = v.x + v.width / 2;
+    const cy = v.y + v.height / 2;
+    if (side === "N") return { x: cx, y: v.y };
+    if (side === "S") return { x: cx, y: v.y + v.height };
+    if (side === "W") return { x: v.x, y: cy };
+    return { x: v.x + v.width, y: cy }; // E
+}
+
+function sideNormal(side: Side): RelationPoint {
+    if (side === "N") return { x: 0, y: -1 };
+    if (side === "S") return { x: 0, y: 1 };
+    if (side === "W") return { x: -1, y: 0 };
+    return { x: 1, y: 0 }; // E
+}
+
+function chooseSide(from: NodeView, toPoint: RelationPoint): Side {
+    const c = center(from);
+    const dx = toPoint.x - c.x;
+    const dy = toPoint.y - c.y;
+    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? "E" : "W";
+    return dy >= 0 ? "S" : "N";
+}
+
+function portPoint(v: NodeView, side: Side, offset = PORT_OFFSET): RelationPoint {
+    const m = sideMidpoint(v, side);
+    const n = sideNormal(side);
+    return { x: m.x + n.x * offset, y: m.y + n.y * offset };
+}
+
+function isSamePoint(a: RelationPoint, b: RelationPoint) {
+    return Math.abs(a.x - b.x) < 0.001 && Math.abs(a.y - b.y) < 0.001;
+}
+
+function pushPoint(out: RelationPoint[], p: RelationPoint) {
+    const last = out[out.length - 1];
+    if (!last || !isSamePoint(last, p)) out.push(p);
+}
+
+function autoOrthoRoute(a: RelationPoint, aSide: Side, b: RelationPoint, bSide: Side, gap: number): RelationPoint[] {
+    const na = sideNormal(aSide);
+    const nb = sideNormal(bSide);
+
+    const exit = { x: a.x + na.x * gap, y: a.y + na.y * gap };
+    const entry = { x: b.x + nb.x * gap, y: b.y + nb.y * gap };
+
+    const pts: RelationPoint[] = [];
+    pushPoint(pts, exit);
+
+    const dx = entry.x - exit.x;
+    const dy = entry.y - exit.y;
+
+    if (Math.abs(dx) >= 0.001 && Math.abs(dy) >= 0.001) {
+        const preferHFirst = Math.abs(dx) >= Math.abs(dy);
+        const mid = preferHFirst ? { x: entry.x, y: exit.y } : { x: exit.x, y: entry.y };
+        pushPoint(pts, mid);
+    }
+
+    pushPoint(pts, entry);
+    return pts;
+}
+
+function buildPathPoints(
+    r: UmlRelation,
+    viewsById: ViewsById
+): { a: RelationPoint; b: RelationPoint; points: RelationPoint[]; fromSide: Side; toSide: Side } | null {
+    const from = viewsById[r.fromId];
+    const to = viewsById[r.toId];
+    if (!from || !to) return null;
+
+    const toC = center(to);
+    const fromC = center(from);
+
+    const fromSide: Side = r.fromPortLocked
+        ? ((r.fromPort as Side | undefined) ?? chooseSide(from, toC))
+        : chooseSide(from, toC);
+    const toSide: Side = r.toPortLocked
+        ? ((r.toPort as Side | undefined) ?? chooseSide(to, fromC))
+        : chooseSide(to, fromC);
+
+    const a = portPoint(from, fromSide);
+    const b = portPoint(to, toSide);
+
+    const controls: RelationPoint[] =
+        r.controlPoints && r.controlPoints.length > 0
+            ? r.controlPoints
+            : autoOrthoRoute(a, fromSide, b, toSide, 24);
+
+    const points: RelationPoint[] = [a, ...controls, b];
+    return { a, b, points, fromSide, toSide };
+}
+
+function pointsToPath(points: RelationPoint[]) {
+    if (points.length === 0) return "";
+    const [p0, ...rest] = points;
+    return [`M ${p0.x} ${p0.y}`, ...rest.map((p) => `L ${p.x} ${p.y}`)].join(" ");
+}
+
+function dist2(p1: RelationPoint, p2: RelationPoint) {
+    const dx = p1.x - p2.x;
+    const dy = p1.y - p2.y;
+    return dx * dx + dy * dy;
+}
+
 export default function RelationLayer(p: Props) {
-    const {
-        relations,
-        viewsById,
-        selectedRelationId,
-        onSelectRelation,
-        onStartReconnect,
-        getEffectiveControlPoints,
-        onStartDragControlPoint,
-        onContextMenuRelation,
-    } = p;
+    const { relations, viewsById, selectedRelationId, onSelectRelation, onStartReconnect, routing, onContextMenuRelation } =
+        p;
 
-    const routed = useMemo(() => {
+    const getControls = routing?.getEffectiveControlPoints;
+
+    const dragKey = useMemo(() => {
+        if (!routing?.isActive || !routing.relationId || !getControls) return "";
+
+        const r = relations.find(rr => rr.id === routing.relationId);
+        if (!r) return "";
+
+        const pts = getControls(r);
+        if (!pts || pts.length === 0) return "";
+
+        // petite "signature" stable mais sensible au mouvement
+        let acc = pts.length * 1000003;
+        for (let i = 0; i < pts.length; i++) {
+            const x = Math.round(pts[i].x);
+            const y = Math.round(pts[i].y);
+            acc = (acc * 31 + x) | 0;
+            acc = (acc * 17 + y) | 0;
+        }
+        return `${routing.relationId}:${acc}`;
+    }, [routing?.isActive, routing?.relationId, getControls, relations]);
+
+    const paths = useMemo(() => {
         return relations
-            .map(r => {
-                const from = viewsById[r.fromId];
-                const to = viewsById[r.toId];
-                if (!from || !to) return null;
+            .map((r) => {
+                const built = buildPathPoints(r, viewsById);
+                if (!built) return null;
 
-                // points de contrôle effectifs (réels ou auto + override du drag)
-                let cps = getEffectiveControlPoints(r);
+                let { a, b, points } = built;
 
-                // anchors N/E/S/W : on choisit le côté en regardant le "prochain point" du chemin
-                const fromTarget = cps.length > 0 ? cps[0] : center(to);
-                const toTarget = cps.length > 0 ? cps[cps.length - 1] : center(from);
-
-                const a = sideMidpoint(from, chooseSide(from, fromTarget));
-                const b = sideMidpoint(to, chooseSide(to, toTarget));
-
-                // si aucun control point, on génère un auto local (basé sur anchors fixes)
-                if (!r.controlPoints || r.controlPoints.length === 0) {
-                    const auto = autoControlPoints(a, b);
-                    // si le hook renvoie aussi auto, cps sera déjà égal à auto — mais on reste robuste
-                    if (cps.length === 0 && auto.length > 0) cps = auto;
+                // IMPORTANT: pendant un drag waypoint, le path doit utiliser les points effectifs (draft inclus)
+                if (routing?.isActive && routing.relationId === r.id && getControls) {
+                    const eff = getControls(r);
+                    if (eff && eff.length >= 2) {
+                        points = eff;
+                        a = eff[0];
+                        b = eff[eff.length - 1];
+                    }
                 }
 
-                const points: RelationPoint[] = [a, ...cps, b];
-
-                // label au milieu (approx : milieu de la polyline par index)
                 const midIdx = Math.floor(points.length / 2);
-                const m = points[midIdx];
+                const m = points[midIdx] ?? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 
-                return { r, a, b, cps, points, m };
+                return { r, a, b, points, m, d: pointsToPath(points) };
             })
             .filter(Boolean) as {
             r: UmlRelation;
             a: RelationPoint;
             b: RelationPoint;
-            cps: RelationPoint[];
             points: RelationPoint[];
             m: RelationPoint;
+            d: string;
         }[];
-    }, [relations, viewsById, getEffectiveControlPoints]);
+    }, [relations, viewsById, dragKey]);
 
     return (
         <g>
@@ -139,7 +227,7 @@ export default function RelationLayer(p: Props) {
                 </marker>
             </defs>
 
-            {routed.map(({ r, a, b, cps, points, m }) => {
+            {paths.map(({ r, a, b, d, m }) => {
                 const selected = r.id === selectedRelationId;
                 const stroke = selected ? "#6aa9ff" : "#cfd6e6";
                 const sw = selected ? 2.5 : 1.5;
@@ -147,19 +235,20 @@ export default function RelationLayer(p: Props) {
                 const HANDLE_R = 4;
                 const HANDLE_HIT_R = 10;
 
-                const CONTROL_R = 4;
-                const CONTROL_HIT_R = 10;
+                // Waypoints
+                const cps: RelationPoint[] = (getControls ? getControls(r) : null) ?? r.controlPoints ?? [];
+                const showWaypoints = selected && cps.length > 0;
+                const endpointsAreWaypoints = !!routing && showWaypoints && cps.length >= 2;
 
-                const pointsAttr = points.map(p => `${p.x},${p.y}`).join(" ");
+                const RECONNECT_R = 9;
 
                 return (
                     <g key={r.id}>
-                        {/* hitbox polyline (sélection fiable) */}
-                        <polyline
-                            points={pointsAttr}
+                        <path
+                            d={d}
                             fill="none"
                             stroke="transparent"
-                            strokeWidth={14}
+                            strokeWidth={12}
                             onMouseDown={(e) => {
                                 e.stopPropagation();
                                 onSelectRelation(r.id);
@@ -173,9 +262,8 @@ export default function RelationLayer(p: Props) {
                             style={{ cursor: "pointer" }}
                         />
 
-                        {/* polyline visible */}
-                        <polyline
-                            points={pointsAttr}
+                        <path
+                            d={d}
                             fill="none"
                             stroke={stroke}
                             strokeWidth={sw}
@@ -184,8 +272,41 @@ export default function RelationLayer(p: Props) {
                             pointerEvents="none"
                         />
 
-                        {/* handles reconnexion (extrémités) */}
-                        {selected && (
+                        {showWaypoints && (
+                            <g>
+                                {cps.map((pt, idx) => {
+                                    const hit = 10;
+                                    const rad = 4;
+
+                                    const nearFrom = dist2(pt, a) <= RECONNECT_R * RECONNECT_R;
+                                    const nearTo = dist2(pt, b) <= RECONNECT_R * RECONNECT_R;
+
+                                    return (
+                                        <g key={`${r.id}-cp-${idx}`}>
+                                            <circle
+                                                cx={pt.x}
+                                                cy={pt.y}
+                                                r={hit}
+                                                fill="transparent"
+                                                onMouseDown={(e) => {
+                                                    if (!routing) return;
+                                                    e.stopPropagation();
+                                                    onSelectRelation(r.id);
+
+                                                    // endpoints (idx 0 / last) : drag => relocalisation manuelle d'ancre
+                                                    // (useRelationRouting commit() fera le snap sur un port)
+                                                    routing.start(r.id, idx);
+                                                }}
+                                                style={{ cursor: routing ? (nearFrom || nearTo ? "move" : "grab") : "default" }}
+                                            />
+                                            <circle cx={pt.x} cy={pt.y} r={rad} fill={stroke} pointerEvents="none" />
+                                        </g>
+                                    );
+                                })}
+                            </g>
+                        )}
+
+                        {selected && !endpointsAreWaypoints && (
                             <g>
                                 <circle
                                     cx={a.x}
@@ -214,29 +335,6 @@ export default function RelationLayer(p: Props) {
                                     style={{ cursor: "crosshair" }}
                                 />
                                 <circle cx={b.x} cy={b.y} r={HANDLE_R} fill={stroke} pointerEvents="none" />
-                            </g>
-                        )}
-
-                        {/* points de contrôle (drag) */}
-                        {selected && cps.length > 0 && (
-                            <g>
-                                {cps.map((p, idx) => (
-                                    <g key={idx}>
-                                        <circle
-                                            cx={p.x}
-                                            cy={p.y}
-                                            r={CONTROL_HIT_R}
-                                            fill="transparent"
-                                            onMouseDown={(e) => {
-                                                e.stopPropagation();
-                                                onSelectRelation(r.id);
-                                                onStartDragControlPoint({ id: r.id, index: idx });
-                                            }}
-                                            style={{ cursor: "move" }}
-                                        />
-                                        <circle cx={p.x} cy={p.y} r={CONTROL_R} fill={stroke} pointerEvents="none" />
-                                    </g>
-                                ))}
                             </g>
                         )}
 

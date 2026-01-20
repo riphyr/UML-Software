@@ -6,10 +6,12 @@ import type { NodeView } from "../../model/view";
 
 type Side = "N" | "E" | "S" | "W";
 
+const PORT_OFFSET = 14;
+
 type Active = {
     relationId: string;
     index: number;
-    basePoints: RelationPoint[]; // matérialisés (auto si la relation n'en avait pas)
+    basePoints: RelationPoint[];
     draft: RelationPoint;
 };
 
@@ -31,14 +33,20 @@ function sideMidpoint(v: NodeView, side: Side): RelationPoint {
     if (side === "N") return { x: cx, y: v.y };
     if (side === "S") return { x: cx, y: v.y + v.height };
     if (side === "W") return { x: v.x, y: cy };
-    return { x: v.x + v.width, y: cy }; // E
+    return { x: v.x + v.width, y: cy };
 }
 
 function sideNormal(side: Side): RelationPoint {
     if (side === "N") return { x: 0, y: -1 };
     if (side === "S") return { x: 0, y: 1 };
     if (side === "W") return { x: -1, y: 0 };
-    return { x: 1, y: 0 }; // E
+    return { x: 1, y: 0 };
+}
+
+function portPoint(v: NodeView, side: Side, offset = PORT_OFFSET): RelationPoint {
+    const m = sideMidpoint(v, side);
+    const n = sideNormal(side);
+    return { x: m.x + n.x * offset, y: m.y + n.y * offset };
 }
 
 function isSamePoint(a: RelationPoint, b: RelationPoint) {
@@ -54,7 +62,6 @@ function autoOrthoRoute(a: RelationPoint, aSide: Side, b: RelationPoint, bSide: 
     const na = sideNormal(aSide);
     const nb = sideNormal(bSide);
 
-    // petit segment de sortie/entrée => garanti perpendiculaire au bord
     const exit = { x: a.x + na.x * gap, y: a.y + na.y * gap };
     const entry = { x: b.x + nb.x * gap, y: b.y + nb.y * gap };
 
@@ -64,12 +71,9 @@ function autoOrthoRoute(a: RelationPoint, aSide: Side, b: RelationPoint, bSide: 
     const dx = entry.x - exit.x;
     const dy = entry.y - exit.y;
 
-    // 0 ou 1 coude entre exit et entry
     if (Math.abs(dx) >= 0.001 && Math.abs(dy) >= 0.001) {
         const preferHFirst = Math.abs(dx) >= Math.abs(dy);
-        const mid = preferHFirst
-            ? { x: entry.x, y: exit.y } // horizontal puis vertical
-            : { x: exit.x, y: entry.y }; // vertical puis horizontal
+        const mid = preferHFirst ? { x: entry.x, y: exit.y } : { x: exit.x, y: entry.y };
         pushPoint(pts, mid);
     }
 
@@ -77,11 +81,7 @@ function autoOrthoRoute(a: RelationPoint, aSide: Side, b: RelationPoint, bSide: 
     return pts;
 }
 
-function computeAutoControlsForRelation(
-    r: UmlRelation,
-    viewsById: ViewsById,
-    opts: { gap: number }
-): RelationPoint[] {
+function computeAutoControlsForRelation(r: UmlRelation, viewsById: ViewsById, opts: { gap: number }): RelationPoint[] {
     const from = viewsById[r.fromId];
     const to = viewsById[r.toId];
     if (!from || !to) return [];
@@ -89,13 +89,63 @@ function computeAutoControlsForRelation(
     const toC = center(to);
     const fromC = center(from);
 
-    const fromSide = chooseSide(from, toC);
-    const toSide = chooseSide(to, fromC);
+    const fromSide: Side = r.fromPortLocked
+        ? ((r.fromPort as Side | undefined) ?? chooseSide(from, toC))
+        : chooseSide(from, toC);
+    const toSide: Side = r.toPortLocked
+        ? ((r.toPort as Side | undefined) ?? chooseSide(to, fromC))
+        : chooseSide(to, fromC);
 
-    const a = sideMidpoint(from, fromSide);
-    const b = sideMidpoint(to, toSide);
+    const a = portPoint(from, fromSide);
+    const b = portPoint(to, toSide);
 
     return autoOrthoRoute(a, fromSide, b, toSide, opts.gap);
+}
+
+function computeEndpoints(r: UmlRelation, viewsById: ViewsById): { a: RelationPoint; b: RelationPoint } | null {
+    const from = viewsById[r.fromId];
+    const to = viewsById[r.toId];
+    if (!from || !to) return null;
+
+    const toC = center(to);
+    const fromC = center(from);
+
+    const fromSide: Side = r.fromPortLocked
+        ? ((r.fromPort as Side | undefined) ?? chooseSide(from, toC))
+        : chooseSide(from, toC);
+    const toSide: Side = r.toPortLocked
+        ? ((r.toPort as Side | undefined) ?? chooseSide(to, fromC))
+        : chooseSide(to, fromC);
+
+    return { a: portPoint(from, fromSide), b: portPoint(to, toSide) };
+}
+
+function dist(a: RelationPoint, b: RelationPoint) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    return Math.hypot(dx, dy);
+}
+
+function findNearestPort(
+    viewsById: ViewsById,
+    p: RelationPoint,
+    hit: number
+): { id: string; side: Side } | null {
+    let best: { id: string; side: Side; d: number } | null = null;
+    const sides: Side[] = ["N", "E", "S", "W"];
+
+    for (const id of Object.keys(viewsById)) {
+        const v = viewsById[id];
+        if (!v) continue;
+        for (const s of sides) {
+            const pp = portPoint(v, s);
+            const d = dist(pp, p);
+            if (d <= hit && (!best || d < best.d)) best = { id, side: s, d };
+        }
+    }
+
+    if (!best) return null;
+    return { id: best.id, side: best.side };
 }
 
 export function useRelationRouting(p: {
@@ -119,12 +169,13 @@ export function useRelationRouting(p: {
         const r = relations.find(x => x.id === relationId);
         if (!r) return;
 
-        const gap = grid.enabled ? Math.max(8, grid.size / 2) : 24;
+        const ends = computeEndpoints(r, viewsById);
+        if (!ends) return;
 
-        const pts =
-            (r.controlPoints && r.controlPoints.length > 0)
-                ? r.controlPoints
-                : computeAutoControlsForRelation(r, viewsById, { gap });
+        const gap = 24;
+        const inner = r.controlPoints && r.controlPoints.length > 0 ? r.controlPoints : computeAutoControlsForRelation(r, viewsById, { gap });
+        // effective points = endpoints + inner control points
+        const pts = [ends.a, ...inner, ends.b];
 
         if (index < 0 || index >= pts.length) return;
 
@@ -137,26 +188,88 @@ export function useRelationRouting(p: {
     }
 
     function updateToWorld(x: number, y: number) {
-        if (grid.enabled) {
-            // snap plus fin que la grille affichée : demi-case
-            const step = Math.max(1, grid.size / 2);
-            const sx = Math.round(x / step) * step;
-            const sy = Math.round(y / step) * step;
-            setActive(prev => (prev ? { ...prev, draft: { x: sx, y: sy } } : prev));
-            return;
-        }
-        setActive(prev => (prev ? { ...prev, draft: { x, y } } : prev));
+        // Grid snap is good for inner waypoints, but it can make endpoint relocalisation impossible:
+        // the dragged point gets stuck between port positions, so it never enters the port hit radius.
+        // Endpoints are snapped on commit() via findNearestPort(), so keep them free while dragging.
+        setActive(prev => {
+            if (!prev) return prev;
+
+            const isEndpoint = prev.index === 0 || prev.index === prev.basePoints.length - 1;
+            if (grid.enabled && !isEndpoint) {
+                const step = Math.max(1, grid.size / 2);
+                const sx = Math.round(x / step) * step;
+                const sy = Math.round(y / step) * step;
+                return { ...prev, draft: { x: sx, y: sy } };
+            }
+
+            return { ...prev, draft: { x, y } };
+        });
     }
 
     function commit() {
         if (!active || disabled) return;
 
+        const r0 = relations.find(r => r.id === active.relationId);
+        if (!r0) {
+            setActive(null);
+            return;
+        }
+
         const next = active.basePoints.map((p, i) => (i === active.index ? active.draft : p));
+        const isEndpointCandidate = active.index === 0 || active.index === next.length - 1;
+
+        const innerAfter = next.slice(1, Math.max(1, next.length - 1));
+
+        if (isEndpointCandidate) {
+            const hit = 22;
+            const port = findNearestPort(viewsById, active.draft, hit);
+
+            if (port) {
+                // endpoint = 0 => from ; endpoint = last => to
+                if (active.index === 0) {
+                    if (port.id !== r0.toId) {
+                        setRelations(prev =>
+                            prev.map(r => {
+                                if (r.id !== r0.id) return r;
+                                return {
+                                    ...r,
+                                    fromId: port.id,
+                                    fromPort: port.side,
+                                    fromPortLocked: true,
+                                    controlPoints: undefined, // endpoint moved => reroute clean
+                                };
+                            })
+                        );
+                        setActive(null);
+                        return;
+                    }
+                } else {
+                    if (port.id !== r0.fromId) {
+                        setRelations(prev =>
+                            prev.map(r => {
+                                if (r.id !== r0.id) return r;
+                                return {
+                                    ...r,
+                                    toId: port.id,
+                                    toPort: port.side,
+                                    toPortLocked: true,
+                                    controlPoints: undefined, // endpoint moved => reroute clean
+                                };
+                            })
+                        );
+                        setActive(null);
+                        return;
+                    }
+                }
+            }
+        }
 
         setRelations(prev =>
             prev.map(r => {
                 if (r.id !== active.relationId) return r;
-                return { ...r, controlPoints: next };
+                // on stocke uniquement les points internes (sans endpoints)
+                const pruned = innerAfter;
+                return { ...r, controlPoints: pruned.length > 0 ? pruned : undefined };
             })
         );
 
@@ -170,11 +283,16 @@ export function useRelationRouting(p: {
     }, [active]);
 
     function getEffectiveControlPoints(r: UmlRelation): RelationPoint[] {
-        if (override && override.relationId === r.id) return override.points;
-        if (r.controlPoints && r.controlPoints.length > 0) return r.controlPoints;
+        const ends = computeEndpoints(r, viewsById);
+        if (!ends) return [];
 
-        const gap = grid.enabled ? Math.max(8, grid.size / 2) : 24;
-        return computeAutoControlsForRelation(r, viewsById, { gap });
+        if (override && override.relationId === r.id) return override.points;
+
+        const inner = r.controlPoints && r.controlPoints.length > 0
+            ? r.controlPoints
+            : computeAutoControlsForRelation(r, viewsById, { gap: 24 });
+
+        return [ends.a, ...inner, ends.b];
     }
 
     return {

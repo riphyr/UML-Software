@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
     NODE_ATTR_START_Y,
     NODE_HEADER_HEIGHT,
@@ -9,6 +9,7 @@ import {
 } from "./layout";
 
 type Handle = "nw" | "ne" | "sw" | "se";
+export type PortSide = "N" | "E" | "S" | "W";
 
 type Props = {
     x: number;
@@ -23,18 +24,23 @@ type Props = {
     selected: boolean;
     editing: boolean;
 
-    onMouseDown?: (e: React.MouseEvent) => void;     // drag (fond)
-    onSelect?: (e: React.MouseEvent) => void;        // select-only (zones texte)
+    onMouseDown?: (e: React.MouseEvent) => void;
+    onSelect?: (e: React.MouseEvent) => void;
     onHoverStart?: () => void;
     onHoverEnd?: () => void;
     onDoubleClickName?: () => void;
-    onNameChange?: (value: string) => void;          // (plus utilisé ici, gardé si tu veux)
     onResizeStart?: (handle: Handle, e: React.MouseEvent) => void;
 
     onDoubleClickAttribute?: (index: number) => void;
     onDoubleClickMethod?: (index: number) => void;
 
     onContextMenu?: (e: React.MouseEvent) => void;
+
+    // Ports
+    mouseWorld?: { x: number; y: number } | null;
+    showPorts?: boolean;
+    onPortHover?: (side: PortSide | null) => void;
+    onPortMouseDown?: (side: PortSide, e: React.MouseEvent) => void;
 };
 
 const HANDLE_SIZE = 8;
@@ -59,6 +65,10 @@ export default function ClassNode({
                                       onDoubleClickAttribute,
                                       onDoubleClickMethod,
                                       onContextMenu,
+                                      mouseWorld,
+                                      showPorts,
+                                      onPortHover,
+                                      onPortMouseDown,
                                   }: Props) {
     const handles: { h: Handle; x: number; y: number }[] = [
         { h: "nw", x: 0, y: 0 },
@@ -75,6 +85,55 @@ export default function ClassNode({
     const attrsCount = getAttrsCount(attributes.length);
     const methodsSeparatorY = getMethodsSeparatorY(attrsCount);
     const methodsStartY = getMethodsStartY(attrsCount);
+
+    // Ports : positions en monde (décalées hors de la box)
+    const PORT_OUT = 14;
+    const ports: { side: PortSide; wx: number; wy: number; lx: number; ly: number }[] = [
+        { side: "N", wx: x + width / 2, wy: y - PORT_OUT, lx: width / 2, ly: -PORT_OUT },
+        { side: "E", wx: x + width + PORT_OUT, wy: y + height / 2, lx: width + PORT_OUT, ly: height / 2 },
+        { side: "S", wx: x + width / 2, wy: y + height + PORT_OUT, lx: width / 2, ly: height + PORT_OUT },
+        { side: "W", wx: x - PORT_OUT, wy: y + height / 2, lx: -PORT_OUT, ly: height / 2 },
+    ];
+
+    let hoverSide: PortSide | null = null;
+    let bestSide: PortSide | null = null;
+    let nearAny = false;
+
+    if (showPorts && mouseWorld && !editing) {
+        let bestD = Infinity;
+        let best: PortSide | null = null;
+
+        for (const p of ports) {
+            const dx = mouseWorld.x - p.wx;
+            const dy = mouseWorld.y - p.wy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < bestD) {
+                bestD = d;
+                best = p.side;
+            }
+        }
+
+        const NEAR_R = 30;
+        const HOVER_R = 14;
+
+        if (bestD <= NEAR_R) {
+            nearAny = true;
+            bestSide = best;
+            hoverSide = best && bestD <= HOVER_R ? best : null;
+        }
+    }
+
+    // Côté logique : dès qu'on est "proche" d'un port, on annonce le bestSide.
+    // Le visuel "hot" reste piloté par hoverSide (rayon plus petit).
+    const logicalSide: PortSide | null = showPorts && !editing && nearAny ? (bestSide ?? null) : null;
+
+    const lastHoverRef = useRef<PortSide | null>(null);
+    useEffect(() => {
+        if (!showPorts || !onPortHover) return;
+        if (lastHoverRef.current === logicalSide) return;
+        lastHoverRef.current = logicalSide;
+        onPortHover(logicalSide);
+    }, [showPorts, onPortHover, logicalSide]);
 
     return (
         <g
@@ -93,7 +152,6 @@ export default function ClassNode({
                 </clipPath>
             </defs>
 
-            {/* Fond (drag) */}
             <rect
                 width={width}
                 height={height}
@@ -106,7 +164,6 @@ export default function ClassNode({
                 style={{ cursor: editing ? "default" : "move" }}
             />
 
-            {/* Header hitbox (select + doubleclick edit) */}
             <rect
                 x={0}
                 y={0}
@@ -124,12 +181,10 @@ export default function ClassNode({
                 style={{ cursor: "text", userSelect: "none" as const }}
             />
 
-            {/* Contenu clippé */}
             <g clipPath={`url(#${clipId})`}>
                 <line x1={0} y1={NODE_HEADER_HEIGHT} x2={width} y2={NODE_HEADER_HEIGHT} stroke="#3a4155" />
                 <line x1={0} y1={methodsSeparatorY} x2={width} y2={methodsSeparatorY} stroke="#3a4155" />
 
-                {/* Nom (TOUJOURS en SVG, jamais d'input ici) */}
                 <text
                     x={PADDING_X}
                     y={NODE_HEADER_HEIGHT / 2}
@@ -142,7 +197,6 @@ export default function ClassNode({
                     {name}
                 </text>
 
-                {/* Attributs (hitbox par ligne) */}
                 {attrs.map((a, i) => {
                     const yMid = NODE_ATTR_START_Y + i * NODE_LINE_HEIGHT + NODE_LINE_HEIGHT / 2;
 
@@ -179,7 +233,6 @@ export default function ClassNode({
                     );
                 })}
 
-                {/* Méthodes (hitbox par ligne) */}
                 {mets.map((m, i) => {
                     const yMid = methodsStartY + i * NODE_LINE_HEIGHT + NODE_LINE_HEIGHT / 2;
 
@@ -217,7 +270,42 @@ export default function ClassNode({
                 })}
             </g>
 
-            {/* Outline au-dessus */}
+            {/* Ports (affichage contextuel) */}
+            {showPorts && !editing && nearAny && (hoverSide || bestSide) && (() => {
+                const side = hoverSide ?? bestSide;
+                if (!side) return null;
+                const p = ports.find(pp => pp.side === side);
+                if (!p) return null;
+
+                const isHot = hoverSide === side;
+                const opacity = isHot ? 0.92 : 0.32;
+                const scale = isHot ? 1.12 : 1.0;
+                const r = 7;
+
+                return (
+                    <g
+                        transform={`translate(${p.lx}, ${p.ly}) scale(${scale})`}
+                        onMouseDown={(e) => {
+                            e.stopPropagation();
+                            onPortMouseDown?.(side, e);
+                        }}
+                        style={{ cursor: "crosshair" }}
+                    >
+                        <circle
+                            cx={0}
+                            cy={0}
+                            r={r}
+                            fill="#cfd6e61a"
+                            stroke={isHot ? "#6aa9ff" : "#cfd6e6"}
+                            strokeWidth={1.5}
+                            opacity={opacity}
+                        />
+                        <line x1={-3.5} y1={0} x2={3.5} y2={0} stroke="#cfd6e6" strokeWidth={1.5} opacity={opacity} />
+                        <line x1={0} y1={-3.5} x2={0} y2={3.5} stroke="#cfd6e6" strokeWidth={1.5} opacity={opacity} />
+                    </g>
+                );
+            })()}
+
             <rect
                 width={width}
                 height={height}
@@ -228,7 +316,6 @@ export default function ClassNode({
                 pointerEvents="none"
             />
 
-            {/* Handles */}
             {selected &&
                 !editing &&
                 handles.map(h => (

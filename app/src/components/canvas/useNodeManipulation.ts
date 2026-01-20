@@ -30,6 +30,7 @@ export function useNodeManipulation(params: {
     const [resizing, setResizing] = useState<ResizeHandle | null>(null);
 
     const activeIdRef = useRef<string | null>(null);
+    const lastManipulatedIdRef = useRef<string | null>(null);
     const didChangeRef = useRef(false);
 
     const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -47,6 +48,10 @@ export function useNodeManipulation(params: {
         return { sx: e.clientX - rect.left, sy: e.clientY - rect.top };
     }
 
+    function getActiveId() {
+        return activeIdRef.current;
+    }
+
     function startDrag(id: string, e: MouseEvent) {
         if (disabled) return;
 
@@ -57,7 +62,9 @@ export function useNodeManipulation(params: {
         const world = screenToWorld(sx, sy, camera);
 
         activeIdRef.current = id;
+        lastManipulatedIdRef.current = id;
         didChangeRef.current = false;
+
         dragOffset.current = {
             x: world.x - view.x,
             y: world.y - view.y,
@@ -76,7 +83,9 @@ export function useNodeManipulation(params: {
         const world = screenToWorld(sx, sy, camera);
 
         activeIdRef.current = id;
+        lastManipulatedIdRef.current = id;
         didChangeRef.current = false;
+
         resizeStart.current = {
             x: world.x,
             y: world.y,
@@ -173,6 +182,12 @@ export function useNodeManipulation(params: {
         activeIdRef.current = null;
     }
 
+    function consumeLastManipulatedId() {
+        const id = lastManipulatedIdRef.current;
+        lastManipulatedIdRef.current = null;
+        return id;
+    }
+
     function consumeDidChange() {
         const v = didChangeRef.current;
         didChangeRef.current = false;
@@ -187,5 +202,7 @@ export function useNodeManipulation(params: {
         onMouseMove,
         stop,
         consumeDidChange,
+        consumeLastManipulatedId,
+        getActiveId,
     };
 }

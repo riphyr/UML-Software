@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import ClassNode from "./nodes/ClassNode";
 import InlineEditors from "./canvas/InlineEditors";
@@ -12,7 +12,7 @@ import Inspector from "./ui/inspector/Inspector";
 
 import { NODE_ATTR_START_Y, getAttrsCount, getMethodsStartY } from "./nodes/layout";
 import { screenToWorld } from "../utils/coords";
-import { makeSnapshot } from "../model/diagram";
+import { makeSnapshot, normalizeSnapshot, type DiagramSnapshotV2 } from "../model/diagram";
 
 import { useCamera } from "./canvas/useCamera";
 import { useNodeManipulation } from "./canvas/useNodeManipulation";
@@ -81,11 +81,13 @@ export default function DiagramCanvas() {
         setViewsById: state.setViewsById,
         disabled:
             (editApi.editingName || editApi.isEditingLine) ||
-            (state.mode === "link") ||
+            state.mode === "link" ||
             relReconnectApi.isActive ||
             relRoutingApi.isActive,
         grid: { enabled: state.grid.enabled, size: state.grid.size },
     });
+
+    const [mouseWorld, setMouseWorld] = useState<{ x: number; y: number } | null>(null);
 
     function focusRoot() {
         rootRef.current?.focus();
@@ -96,6 +98,27 @@ export default function DiagramCanvas() {
         return { sx: e.clientX - rect.left, sy: e.clientY - rect.top };
     }
 
+    // --- Undo/Redo : applySnapshot sans dépendre de useDiagramActions
+    function applySnapshot(s: DiagramSnapshotV2) {
+        const snap = normalizeSnapshot(s);
+        state.setClasses(snap.classes);
+        state.setViewsById(snap.viewsById);
+        state.setRelations(snap.relations);
+        state.setSelectedId(null);
+        state.setSelectedRelationId(null);
+    }
+
+    const undoApi = useUndoRedo({
+        getSnapshot: () => makeSnapshot(state.classes, state.viewsById, state.relations),
+        applySnapshot,
+    });
+
+    const ctxMenu = useContextMenu({
+        classes: state.classes,
+        relations: state.relations,
+        onAction: () => {},
+    });
+
     const actions = useDiagramActions({
         state,
         undo: { pushSnapshot: () => undoApi.pushSnapshot() },
@@ -105,20 +128,10 @@ export default function DiagramCanvas() {
         persistence,
     });
 
-    const ctxMenu = useContextMenu({
-        classes: state.classes,
-        relations: state.relations,
-        onAction: actions.onContextAction,
-    });
-
-    function applySnapshot(s: any) {
-        actions.applySnapshot(s);
-    }
-
-    const undoApi = useUndoRedo({
-        getSnapshot: () => makeSnapshot(state.classes, state.viewsById, state.relations),
-        applySnapshot,
-    });
+    // brancher le vrai handler
+    const ctxMenuOnActionRef = useRef(actions.onContextAction);
+    ctxMenuOnActionRef.current = actions.onContextAction;
+    (ctxMenu as any).onAction = (payload: any) => ctxMenuOnActionRef.current(payload);
 
     const input = useDiagramInput({
         svgRef,
@@ -131,7 +144,7 @@ export default function DiagramCanvas() {
             ...relApi,
             setActive: (relApi as any).setActive,
         } as any,
-        relReconnectApi,
+        relReconnectApi: relReconnectApi as any,
         relRoutingApi,
         editApi,
         undoApi,
@@ -193,7 +206,16 @@ export default function DiagramCanvas() {
                                                 : "default",
                     userSelect: "none",
                 }}
-                onMouseMove={input.onMouseMove}
+                onMouseMove={(e) => {
+                    input.onMouseMove(e);
+
+                    if (!svgRef.current) return;
+                    const rect = svgRef.current.getBoundingClientRect();
+                    const sx = e.clientX - rect.left;
+                    const sy = e.clientY - rect.top;
+                    const w = screenToWorld(sx, sy, cameraApi.camera);
+                    setMouseWorld(w);
+                }}
                 onMouseUp={input.onMouseUp}
                 onMouseLeave={input.onMouseUp}
                 onWheel={(e) => {
@@ -236,14 +258,6 @@ export default function DiagramCanvas() {
                             ctxMenu.close();
                             relReconnectApi.start(id, end);
                         }}
-                        getEffectiveControlPoints={relRoutingApi.getEffectiveControlPoints}
-                        onStartDragControlPoint={({ id, index }) => {
-                            state.setSelectedRelationId(id);
-                            state.setSelectedId(null);
-                            ctxMenu.close();
-                            (input as any).beginRoutingDragSnapshotCapture();
-                            relRoutingApi.start(id, index);
-                        }}
                         onContextMenuRelation={({ id, clientX, clientY }) => {
                             if (!svgRef.current) return;
 
@@ -259,6 +273,12 @@ export default function DiagramCanvas() {
                                 { x: clientX, y: clientY },
                                 { kind: "relation", id, worldX: world.x, worldY: world.y }
                             );
+                        }}
+                        routing={{
+                            isActive: relRoutingApi.isActive,
+                            relationId: relRoutingApi.relationId,
+                            start: relRoutingApi.start,
+                            getEffectiveControlPoints: relRoutingApi.getEffectiveControlPoints,
                         }}
                     />
 
@@ -316,12 +336,62 @@ export default function DiagramCanvas() {
                                 methods={displayMethods}
                                 selected={isSelected}
                                 editing={isSelected && editApi.editingName}
+                                mouseWorld={mouseWorld}
+                                showPorts={
+                                    state.mode === "link" ||
+                                    relReconnectApi.isActive ||
+                                    relRoutingApi.isActive ||
+                                    (state.mode === "select" && !state.selectedRelationId)
+                                }
+                                onPortHover={(side) => {
+                                    // IMPORTANT : le hover port doit piloter la preview (link ET reconnect)
+                                    if ((relApi as any).mode) (relApi as any).hoverToPort?.(c.id, side ?? undefined);
+                                    if (relReconnectApi.isActive) (relReconnectApi as any).hoverToPort?.(c.id, side ?? undefined);
+                                }}
+                                onPortMouseDown={(side, e) => {
+                                    e.stopPropagation();
+                                    focusRoot();
+
+                                    // Select + clic sur un "+" => bascule Link + démarre depuis CE port
+                                    if (
+                                        state.mode === "select" &&
+                                        !state.selectedRelationId &&
+                                        !relReconnectApi.isActive &&
+                                        !relRoutingApi.isActive
+                                    ) {
+                                        ctxMenu.close();
+                                        state.setSelectedId(c.id);
+                                        state.setSelectedRelationId(null);
+
+                                        state.setMode("link");
+                                        (relApi as any).setActive?.(true);
+                                        // startFromPort est now tolerant (active le mode si besoin)
+                                        (relApi as any).startFromPort?.(c.id, side);
+                                        return;
+                                    }
+
+                                    if (state.mode === "link") {
+                                        if (!(relApi as any).hasFrom) {
+                                            (relApi as any).startFromPort?.(c.id, side);
+                                            return;
+                                        }
+                                        undoApi.pushSnapshot();
+                                        (relApi as any).commitToPort?.(c.id, side);
+                                        return;
+                                    }
+
+                                    // Reconnect : commit au clic (utile si tu veux cliquer explicitement)
+                                    if (relReconnectApi.isActive) {
+                                        undoApi.pushSnapshot();
+                                        (relReconnectApi as any).commitToPort?.(c.id, side);
+                                    }
+                                }}
                                 onHoverStart={() => {
-                                    if (state.mode === "link") relApi.hoverTo(c.id);
+                                    if ((relApi as any).mode) relApi.hoverTo(c.id);
                                     if (relReconnectApi.isActive) relReconnectApi.hoverTo(c.id);
                                 }}
                                 onHoverEnd={() => {
-                                    if (state.mode === "link") relApi.clearHover();
+                                    if ((relApi as any).mode) relApi.clearHover();
                                     if (relReconnectApi.isActive) relReconnectApi.clearHover();
                                 }}
                                 onMouseDown={e => input.onNodeMouseDown(c.id, e)}
@@ -330,7 +400,6 @@ export default function DiagramCanvas() {
                                 onDoubleClickName={() => {
                                     if (state.mode === "link") return;
                                     if (relReconnectApi.isActive) return;
-                                    if (relRoutingApi.isActive) return;
                                     state.setSelectedId(c.id);
                                     state.setSelectedRelationId(null);
                                     requestAnimationFrame(() => editApi.startEditName());
@@ -338,7 +407,6 @@ export default function DiagramCanvas() {
                                 onDoubleClickAttribute={i => {
                                     if (state.mode === "link") return;
                                     if (relReconnectApi.isActive) return;
-                                    if (relRoutingApi.isActive) return;
                                     state.setSelectedId(c.id);
                                     state.setSelectedRelationId(null);
                                     requestAnimationFrame(() => editApi.startEditAttribute(i));
@@ -346,7 +414,6 @@ export default function DiagramCanvas() {
                                 onDoubleClickMethod={i => {
                                     if (state.mode === "link") return;
                                     if (relReconnectApi.isActive) return;
-                                    if (relRoutingApi.isActive) return;
                                     state.setSelectedId(c.id);
                                     state.setSelectedRelationId(null);
                                     requestAnimationFrame(() => editApi.startEditMethod(i));

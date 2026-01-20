@@ -1,18 +1,28 @@
 import { useMemo, useState } from "react";
-import type { RelationKind, UmlRelation } from "../../model/relation";
+import type { PortSide, RelationKind, UmlRelation } from "../../model/relation";
 import type { ViewsById } from "../../model/views";
 import type { NodeView } from "../../model/view";
 
+type Side = PortSide;
+
 type Preview = {
     fromId: string;
+    fromPort?: Side;
     toWorld: { x: number; y: number };
 };
+
+type HoverTarget =
+    | {
+    id: string;
+    port?: Side;
+}
+    | null;
+
+const ANCHOR_OFFSET = 10;
 
 function center(v: NodeView) {
     return { x: v.x + v.width / 2, y: v.y + v.height / 2 };
 }
-
-type Side = "N" | "E" | "S" | "W";
 
 function chooseSide(from: NodeView, toPoint: { x: number; y: number }): Side {
     const c = center(from);
@@ -31,6 +41,19 @@ function sideMidpoint(v: NodeView, side: Side) {
     return { x: v.x + v.width, y: cy }; // E
 }
 
+function sideNormal(side: Side) {
+    if (side === "N") return { x: 0, y: -1 };
+    if (side === "S") return { x: 0, y: 1 };
+    if (side === "W") return { x: -1, y: 0 };
+    return { x: 1, y: 0 };
+}
+
+function portPoint(v: NodeView, side: Side, offset = ANCHOR_OFFSET) {
+    const m = sideMidpoint(v, side);
+    const n = sideNormal(side);
+    return { x: m.x + n.x * offset, y: m.y + n.y * offset };
+}
+
 export function useRelationCreation(p: {
     viewsById: ViewsById;
     relations: UmlRelation[];
@@ -42,12 +65,15 @@ export function useRelationCreation(p: {
     const [mode, setMode] = useState(false);
     const [kind, setKind] = useState<RelationKind>("assoc");
     const [preview, setPreview] = useState<Preview | null>(null);
-    const [hoverToId, setHoverToId] = useState<string | null>(null);
+    const [hover, setHover] = useState<HoverTarget>(null);
 
     function setActive(next: boolean) {
         if (disabled) return;
         setMode(next);
-        if (!next) setPreview(null);
+        if (!next) {
+            setPreview(null);
+            setHover(null);
+        }
     }
 
     function toggleMode() {
@@ -55,15 +81,26 @@ export function useRelationCreation(p: {
     }
 
     function cancel() {
-        setHoverToId(null);
+        setHover(null);
         setActive(false);
     }
 
     function startFrom(id: string) {
-        if (!mode || disabled) return;
+        // allow imperative start even if mode just got enabled this tick
+        if (disabled) return;
+        if (!mode) setMode(true);
         if (!viewsById[id]) return;
-        setHoverToId(null);
+        setHover(null);
         setPreview({ fromId: id, toWorld: { x: 0, y: 0 } });
+    }
+
+    function startFromPort(id: string, port: Side) {
+        // allow imperative start even if mode just got enabled this tick
+        if (disabled) return;
+        if (!mode) setMode(true);
+        if (!viewsById[id]) return;
+        setHover(null);
+        setPreview({ fromId: id, fromPort: port, toWorld: { x: 0, y: 0 } });
     }
 
     function updateToWorld(x: number, y: number) {
@@ -71,15 +108,38 @@ export function useRelationCreation(p: {
         setPreview({ ...preview, toWorld: { x, y } });
     }
 
+    // IMPORTANT: ne pas écraser un hover port actif
     function hoverTo(id: string | null) {
         if (!mode || !preview) return;
         if (id && !viewsById[id]) return;
         if (id === preview.fromId) id = null;
-        setHoverToId(id);
+
+        setHover(prev => {
+            if (!id) return null;
+            if (prev && prev.id === id && prev.port) return prev; // garde le port si déjà set
+            return { id };
+        });
+    }
+
+    function hoverToPort(id: string | null, port?: Side) {
+        if (!mode || !preview) return;
+
+        if (!id) {
+            setHover(null);
+            return;
+        }
+
+        if (!viewsById[id]) return;
+        if (id === preview.fromId) {
+            setHover(null);
+            return;
+        }
+
+        setHover({ id, port });
     }
 
     function clearHover() {
-        setHoverToId(null);
+        setHover(null);
     }
 
     function commitTo(toId: string) {
@@ -87,6 +147,15 @@ export function useRelationCreation(p: {
         if (!preview) return;
         if (!viewsById[toId]) return;
         if (toId === preview.fromId) return;
+
+        const fromView = viewsById[preview.fromId];
+        const toView = viewsById[toId];
+        if (!fromView || !toView) return;
+
+        const toPort = hover && hover.id === toId ? hover.port : undefined;
+
+        const fromSide: Side = preview.fromPort ?? chooseSide(fromView, center(toView));
+        const toSide: Side = toPort ?? chooseSide(toView, center(fromView));
 
         const id = `rel-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -96,11 +165,48 @@ export function useRelationCreation(p: {
             toId,
             kind,
             label: "",
+            // IMPORTANT: ne verrouille le port que si l'utilisateur a choisi un +
+            fromPort: preview.fromPort ? fromSide : undefined,
+            toPort: toPort ? toSide : undefined,
+            fromPortLocked: !!preview.fromPort,
+            toPortLocked: !!toPort,
         };
 
         setRelations(prev => [...prev, r]);
         setPreview(null);
-        setHoverToId(null);
+        setHover(null);
+    }
+
+    function commitToPort(toId: string, port: Side) {
+        if (!mode || disabled) return;
+        if (!preview) return;
+        if (!viewsById[toId]) return;
+        if (toId === preview.fromId) return;
+
+        const fromView = viewsById[preview.fromId];
+        const toView = viewsById[toId];
+        if (!fromView || !toView) return;
+
+        const fromSide: Side = preview.fromPort ?? chooseSide(fromView, center(toView));
+        const toSide: Side = port;
+
+        const id = `rel-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+        const r: UmlRelation = {
+            id,
+            fromId: preview.fromId,
+            toId,
+            kind,
+            label: "",
+            fromPort: preview.fromPort ? fromSide : undefined,
+            toPort: toSide,
+            fromPortLocked: !!preview.fromPort,
+            toPortLocked: true,
+        };
+
+        setRelations(prev => [...prev, r]);
+        setPreview(null);
+        setHover(null);
     }
 
     const previewLine = useMemo(() => {
@@ -109,20 +215,23 @@ export function useRelationCreation(p: {
         const from = viewsById[preview.fromId];
         if (!from) return null;
 
-        const hoverTo = hoverToId ? viewsById[hoverToId] : null;
-        const targetPoint = hoverTo ? center(hoverTo) : preview.toWorld;
-
-        const fromSide = chooseSide(from, targetPoint);
-        const a = sideMidpoint(from, fromSide);
-
+        let targetPoint = preview.toWorld;
         let b = preview.toWorld;
-        if (hoverTo) {
-            const toSide = chooseSide(hoverTo, center(from));
-            b = sideMidpoint(hoverTo, toSide);
+
+        if (hover) {
+            const to = viewsById[hover.id];
+            if (to) {
+                targetPoint = center(to);
+                const toSide: Side = hover.port ?? chooseSide(to, center(from));
+                b = portPoint(to, toSide);
+            }
         }
 
+        const fromSide: Side = preview.fromPort ?? chooseSide(from, targetPoint);
+        const a = portPoint(from, fromSide);
+
         return { a, b };
-    }, [mode, preview, viewsById, hoverToId]);
+    }, [mode, preview, hover, viewsById]);
 
     return {
         mode,
@@ -137,10 +246,15 @@ export function useRelationCreation(p: {
         fromId: preview?.fromId ?? null,
 
         startFrom,
+        startFromPort,
+
         updateToWorld,
+
         commitTo,
+        commitToPort,
 
         hoverTo,
+        hoverToPort,
         clearHover,
 
         previewLine,

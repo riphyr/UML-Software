@@ -39,24 +39,36 @@ type RelCreationApi = {
     cancel: () => void;
     setKind: (k: UmlRelation["kind"]) => void;
     updateToWorld: (x: number, y: number) => void;
+
+    startFromPort?: (id: string, side: any) => void;
+    commitToPort?: (id: string, side: any) => void;
+    hoverToPort?: (id: string | null, side?: any) => void;
+
+    hoverTo: (id: string | null) => void;
+    clearHover: () => void;
 };
 
 type RelReconnectApi = {
     isActive: boolean;
-    hoverToId: string | null;
     updateToWorld: (x: number, y: number) => void;
-    commitTo: (id: string) => void;
     cancel: () => void;
+
+    commitTo?: (id: string) => void;
+    commitToPort?: (id: string, side: any) => void;
+
+    hoverToId?: string | null;
+    hover?: { id: string; port?: any } | null;
+
+    hoverTo: (id: string | null) => void;
+    clearHover: () => void;
 };
 
 type RelRoutingApi = {
     isActive: boolean;
     relationId: string | null;
-
-    start: (relationId: string, index: number) => void;
-    cancel: () => void;
     updateToWorld: (x: number, y: number) => void;
     commit: () => void;
+    cancel: () => void;
 };
 
 type EditApi = {
@@ -88,7 +100,8 @@ export function useDiagramInput(args: {
     nodeManip: NodeManipApi;
     relApi: RelCreationApi;
     relReconnectApi: RelReconnectApi;
-    relRoutingApi: RelRoutingApi;
+    relRoutingApi?: RelRoutingApi;
+
     editApi: EditApi;
     undoApi: UndoApi;
     ctxMenu: CtxMenuApi;
@@ -121,7 +134,6 @@ export function useDiagramInput(args: {
     } = args;
 
     const manipStartSnapshotRef = useRef<DiagramSnapshotV2 | null>(null);
-    const routingStartSnapshotRef = useRef<DiagramSnapshotV2 | null>(null);
 
     useEffect(() => {
         if (state.mode === "link") relApi.setActive(true);
@@ -134,15 +146,12 @@ export function useDiagramInput(args: {
         ctxMenu.close();
         focusRoot();
 
-        // priorité : drag routing en cours => clic vide annule (sans commit)
-        if (relRoutingApi.isActive) {
+        if (relRoutingApi?.isActive) {
             e.preventDefault();
             relRoutingApi.cancel();
-            routingStartSnapshotRef.current = null;
             return;
         }
 
-        // priorité : reconnexion en cours => clic vide annule
         if (relReconnectApi.isActive) {
             e.preventDefault();
             relReconnectApi.cancel();
@@ -217,15 +226,13 @@ export function useDiagramInput(args: {
     function onNodeMouseDown(id: string, e: any) {
         ctxMenu.close();
 
-        // drag routing actif => pas de drag node
-        if (relRoutingApi.isActive) {
+        if (relRoutingApi?.isActive) {
             e.stopPropagation();
             focusRoot();
             cameraApi.allowPan(false);
             return;
         }
 
-        // reconnexion active => pas de drag node
         if (relReconnectApi.isActive) {
             e.stopPropagation();
             focusRoot();
@@ -253,7 +260,7 @@ export function useDiagramInput(args: {
     function onNodeSelectOnly(id: string, e: any) {
         ctxMenu.close();
 
-        if (relRoutingApi.isActive) {
+        if (relRoutingApi?.isActive) {
             e.stopPropagation();
             focusRoot();
             cameraApi.allowPan(false);
@@ -285,7 +292,7 @@ export function useDiagramInput(args: {
         ctxMenu.close();
         if (relApi.mode) return;
         if (relReconnectApi.isActive) return;
-        if (relRoutingApi.isActive) return;
+        if (relRoutingApi?.isActive) return;
 
         e.stopPropagation();
         focusRoot();
@@ -308,46 +315,75 @@ export function useDiagramInput(args: {
             const sy = (e as any).clientY - rect.top;
             const w = screenToWorld(sx, sy, cameraApi.camera);
 
-            if (relRoutingApi.isActive) {
+            if (relRoutingApi?.isActive) {
                 relRoutingApi.updateToWorld(w.x, w.y);
-            } else if (relReconnectApi.isActive) {
+                return;
+            }
+
+            if (relReconnectApi.isActive) {
                 relReconnectApi.updateToWorld(w.x, w.y);
             } else if (relApi.mode && relApi.hasFrom) {
                 relApi.updateToWorld(w.x, w.y);
             }
         }
 
-        if (!relRoutingApi.isActive && !relReconnectApi.isActive) {
+        if (!relReconnectApi.isActive && !relRoutingApi?.isActive) {
             const usedByNode = nodeManip.onMouseMove(e);
+
+            // IMPORTANT : reroute en TEMPS REEL quand une node bouge/resize
+            // => on casse tous les controlPoints des relations connectées (même si elles étaient manuelles)
+            if (usedByNode && state.selectedId) {
+                const movedId = state.selectedId;
+                state.setRelations(prev =>
+                    prev.map(r =>
+                        (r.fromId === movedId || r.toId === movedId)
+                            ? { ...r, controlPoints: undefined }
+                            : r
+                    )
+                );
+                return;
+            }
+
             if (usedByNode) return;
         }
 
-        cameraApi.panMove(e);
+        if (!relRoutingApi?.isActive) cameraApi.panMove(e);
     }
 
     function onMouseUp() {
         cameraApi.endPan();
 
-        // commit routing drag
-        if (relRoutingApi.isActive) {
-            if (routingStartSnapshotRef.current) {
-                undoApi.pushSnapshot(routingStartSnapshotRef.current);
-            }
-            routingStartSnapshotRef.current = null;
+        if (relRoutingApi?.isActive) {
+            undoApi.pushSnapshot();
             relRoutingApi.commit();
             nodeManip.stop();
             manipStartSnapshotRef.current = null;
             return;
         }
 
-        // commit/cancel reconnexion
         if (relReconnectApi.isActive) {
-            if (relReconnectApi.hoverToId) {
+            // IMPORTANT : commit au RELEASE, et si hover contient un port -> commitToPort
+            const hoverObj = relReconnectApi.hover ?? null;
+            const hoverId =
+                hoverObj?.id ??
+                relReconnectApi.hoverToId ??
+                null;
+
+            if (hoverId) {
                 undoApi.pushSnapshot();
-                relReconnectApi.commitTo(relReconnectApi.hoverToId);
+
+                const hoverPort = hoverObj?.port ?? undefined;
+                if (hoverPort && relReconnectApi.commitToPort) {
+                    relReconnectApi.commitToPort(hoverId, hoverPort);
+                } else if (relReconnectApi.commitTo) {
+                    relReconnectApi.commitTo(hoverId);
+                } else {
+                    relReconnectApi.cancel();
+                }
             } else {
                 relReconnectApi.cancel();
             }
+
             nodeManip.stop();
             manipStartSnapshotRef.current = null;
             return;
@@ -363,15 +399,12 @@ export function useDiagramInput(args: {
     }
 
     function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-        // ESC : priorité routing
-        if (e.key === "Escape" && relRoutingApi.isActive) {
+        if (e.key === "Escape" && relRoutingApi?.isActive) {
             e.preventDefault();
             relRoutingApi.cancel();
-            routingStartSnapshotRef.current = null;
             return;
         }
 
-        // ESC : ensuite reconnexion
         if (e.key === "Escape" && relReconnectApi.isActive) {
             e.preventDefault();
             relReconnectApi.cancel();
@@ -463,14 +496,6 @@ export function useDiagramInput(args: {
         }
     }
 
-    // IMPORTANT : le démarrage du drag de point de contrôle se fait via DiagramCanvas (callback).
-    // Pour l'undo, on capture le snapshot au 1er mouvement effectif.
-    // Ici : on capture au moment où le drag démarre, depuis le clic handle (dans DiagramCanvas, juste avant relRoutingApi.start).
-    // => on l’expose via une méthode privée simple ci-dessous.
-    function beginRoutingDragSnapshotCapture() {
-        if (!routingStartSnapshotRef.current) routingStartSnapshotRef.current = makeSnapshot();
-    }
-
     return {
         onBackgroundMouseDown,
         onBackgroundContextMenu,
@@ -480,8 +505,5 @@ export function useDiagramInput(args: {
         onMouseMove,
         onMouseUp,
         onKeyDown,
-
-        // utilisé depuis DiagramCanvas au clic sur un control point
-        beginRoutingDragSnapshotCapture,
     };
 }
