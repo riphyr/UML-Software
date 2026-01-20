@@ -273,15 +273,62 @@ export function useDiagramActions(args: {
         edit.cancelNameEdit();
     }
 
+    function setClassName(id: string, name: string) {
+        undo.pushSnapshot();
+        setClasses(prev => prev.map(c => (c.id === id ? { ...c, name } : c)));
+    }
+
+    function setClassAttributes(id: string, attributes: string[]) {
+        undo.pushSnapshot();
+        setClasses(prev => prev.map(c => (c.id === id ? { ...c, attributes } : c)));
+    }
+
+    function setClassMethods(id: string, methods: string[]) {
+        undo.pushSnapshot();
+        setClasses(prev => prev.map(c => (c.id === id ? { ...c, methods } : c)));
+    }
+
+    function setRelationLabelOnSelected(label: string) {
+        if (!selectedRelationId) return;
+        undo.pushSnapshot();
+        setRelations(prev => prev.map(r => (r.id === selectedRelationId ? { ...r, label } : r)));
+    }
+
+    function duplicateSelected() {
+        if (!selectedId) return;
+        undo.pushSnapshot();
+
+        const src = classes.find(c => c.id === selectedId);
+        const v = viewsById[selectedId];
+        if (!src || !v) return;
+
+        const id = crypto.randomUUID();
+        const copy: UmlClass = { ...src, id, name: `${src.name}Copy` };
+        const viewCopy: NodeView = { ...v, id, x: v.x + 20, y: v.y + 20 };
+
+        setClasses(prev => [...prev, copy]);
+        setViewsById(prev => ({ ...prev, [id]: viewCopy }));
+        setSelectedId(id);
+        setSelectedRelationId(null);
+    }
+
     return {
         onContextAction,
         deleteSelected,
+        duplicateSelected,
+
+        setClassName,
+        setClassAttributes,
+        setClassMethods,
+
         setRelationKindOnSelected,
+        setRelationLabelOnSelected,
+
         editSelectedRelationLabel,
         applySnapshot,
         makeCurrentSnapshot: () => makeSnapshot(state.classes, state.viewsById, state.relations),
 
-        // NEW: utilisé par le mode "addClass" (toolbar + clic fond)
+        // utile aussi ailleurs
         createClassAtWorld,
     };
 }

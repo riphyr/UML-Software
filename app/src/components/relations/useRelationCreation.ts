@@ -12,24 +12,23 @@ function center(v: NodeView) {
     return { x: v.x + v.width / 2, y: v.y + v.height / 2 };
 }
 
-function anchorFromToPoint(from: NodeView, toPoint: { x: number; y: number }) {
-    const c1 = center(from);
-    const c2 = toPoint;
+type Side = "N" | "E" | "S" | "W";
 
-    const dx = c2.x - c1.x;
-    const dy = c2.y - c1.y;
+function chooseSide(from: NodeView, toPoint: { x: number; y: number }): Side {
+    const c = center(from);
+    const dx = toPoint.x - c.x;
+    const dy = toPoint.y - c.y;
+    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? "E" : "W";
+    return dy >= 0 ? "S" : "N";
+}
 
-    const hw = from.width / 2;
-    const hh = from.height / 2;
-
-    const ax = Math.abs(dx) < 1e-6 ? 1e-6 : dx;
-    const ay = Math.abs(dy) < 1e-6 ? 1e-6 : dy;
-
-    const tx = hw / Math.abs(ax);
-    const ty = hh / Math.abs(ay);
-    const t = Math.min(tx, ty);
-
-    return { x: c1.x + dx * t, y: c1.y + dy * t };
+function sideMidpoint(v: NodeView, side: Side) {
+    const cx = v.x + v.width / 2;
+    const cy = v.y + v.height / 2;
+    if (side === "N") return { x: cx, y: v.y };
+    if (side === "S") return { x: cx, y: v.y + v.height };
+    if (side === "W") return { x: v.x, y: cy };
+    return { x: v.x + v.width, y: cy }; // E
 }
 
 export function useRelationCreation(p: {
@@ -43,6 +42,7 @@ export function useRelationCreation(p: {
     const [mode, setMode] = useState(false);
     const [kind, setKind] = useState<RelationKind>("assoc");
     const [preview, setPreview] = useState<Preview | null>(null);
+    const [hoverToId, setHoverToId] = useState<string | null>(null);
 
     function setActive(next: boolean) {
         if (disabled) return;
@@ -55,18 +55,31 @@ export function useRelationCreation(p: {
     }
 
     function cancel() {
+        setHoverToId(null);
         setActive(false);
     }
 
     function startFrom(id: string) {
         if (!mode || disabled) return;
         if (!viewsById[id]) return;
+        setHoverToId(null);
         setPreview({ fromId: id, toWorld: { x: 0, y: 0 } });
     }
 
     function updateToWorld(x: number, y: number) {
         if (!mode || !preview) return;
         setPreview({ ...preview, toWorld: { x, y } });
+    }
+
+    function hoverTo(id: string | null) {
+        if (!mode || !preview) return;
+        if (id && !viewsById[id]) return;
+        if (id === preview.fromId) id = null;
+        setHoverToId(id);
+    }
+
+    function clearHover() {
+        setHoverToId(null);
     }
 
     function commitTo(toId: string) {
@@ -87,16 +100,29 @@ export function useRelationCreation(p: {
 
         setRelations(prev => [...prev, r]);
         setPreview(null);
+        setHoverToId(null);
     }
 
     const previewLine = useMemo(() => {
         if (!mode || !preview) return null;
+
         const from = viewsById[preview.fromId];
         if (!from) return null;
-        const a = anchorFromToPoint(from, preview.toWorld);
-        const b = preview.toWorld;
+
+        const hoverTo = hoverToId ? viewsById[hoverToId] : null;
+        const targetPoint = hoverTo ? center(hoverTo) : preview.toWorld;
+
+        const fromSide = chooseSide(from, targetPoint);
+        const a = sideMidpoint(from, fromSide);
+
+        let b = preview.toWorld;
+        if (hoverTo) {
+            const toSide = chooseSide(hoverTo, center(from));
+            b = sideMidpoint(hoverTo, toSide);
+        }
+
         return { a, b };
-    }, [mode, preview, viewsById]);
+    }, [mode, preview, viewsById, hoverToId]);
 
     return {
         mode,
@@ -113,6 +139,9 @@ export function useRelationCreation(p: {
         startFrom,
         updateToWorld,
         commitTo,
+
+        hoverTo,
+        clearHover,
 
         previewLine,
     };

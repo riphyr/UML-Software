@@ -8,6 +8,7 @@ import Axes from "./canvas/Axes";
 import ContextMenu from "./contextmenu/ContextMenu";
 
 import Toolbar from "./ui/toolbar/Toolbar";
+import Inspector from "./ui/inspector/Inspector";
 
 import { NODE_ATTR_START_Y, getAttrsCount, getMethodsStartY } from "./nodes/layout";
 import { screenToWorld } from "../utils/coords";
@@ -17,6 +18,8 @@ import { useCamera } from "./canvas/useCamera";
 import { useNodeManipulation } from "./canvas/useNodeManipulation";
 import { useInlineEdit } from "./canvas/useInlineEdit";
 import { useRelationCreation } from "./relations/useRelationCreation";
+import { useRelationReconnect } from "./relations/useRelationReconnect";
+import { useRelationRouting } from "./relations/useRelationRouting";
 import { useUndoRedo } from "./canvas/useUndoRedo";
 import { useContextMenu } from "./contextmenu/useContextMenu";
 import { useDiagramPersistence } from "./canvas/useDiagramPersistence";
@@ -56,12 +59,31 @@ export default function DiagramCanvas() {
         disabled: editApi.editingName || editApi.isEditingLine,
     });
 
+    const relReconnectApi = useRelationReconnect({
+        viewsById: state.viewsById,
+        relations: state.relations,
+        setRelations: state.setRelations,
+        disabled: editApi.editingName || editApi.isEditingLine || state.mode === "link",
+    });
+
+    const relRoutingApi = useRelationRouting({
+        viewsById: state.viewsById,
+        relations: state.relations,
+        setRelations: state.setRelations,
+        disabled: editApi.editingName || editApi.isEditingLine || state.mode === "link" || relReconnectApi.isActive,
+        grid: { enabled: state.grid.enabled, size: state.grid.size },
+    });
+
     const nodeManip = useNodeManipulation({
         svgRef,
         camera: cameraApi.camera,
         getViewById: (id: string) => state.viewsById[id],
         setViewsById: state.setViewsById,
-        disabled: (editApi.editingName || editApi.isEditingLine) || (state.mode === "link"),
+        disabled:
+            (editApi.editingName || editApi.isEditingLine) ||
+            (state.mode === "link") ||
+            relReconnectApi.isActive ||
+            relRoutingApi.isActive,
         grid: { enabled: state.grid.enabled, size: state.grid.size },
     });
 
@@ -107,9 +129,10 @@ export default function DiagramCanvas() {
         nodeManip,
         relApi: {
             ...relApi,
-            // assure typage si TS râle (selon ton patch du hook relations)
             setActive: (relApi as any).setActive,
         } as any,
+        relReconnectApi,
+        relRoutingApi,
         editApi,
         undoApi,
         ctxMenu,
@@ -124,6 +147,13 @@ export default function DiagramCanvas() {
 
     const attrsCount = state.selectedClass ? getAttrsCount(state.selectedClass.attributes.length) : 0;
     const methodsStartY = getMethodsStartY(attrsCount);
+
+    const selectedRelation =
+        state.selectedRelationId ? state.relations.find(r => r.id === state.selectedRelationId) ?? null : null;
+
+    function getClassNameById(id: string) {
+        return state.classes.find(c => c.id === id)?.name ?? id;
+    }
 
     return (
         <div
@@ -155,10 +185,12 @@ export default function DiagramCanvas() {
                     display: "block",
                     cursor:
                         cameraApi.isPanning ? "grabbing"
-                            : state.mode === "link" ? "crosshair"
-                                : state.mode === "pan" ? "grab"
-                                    : state.mode === "addClass" ? "copy"
-                                        : "default",
+                            : relReconnectApi.isActive ? "crosshair"
+                                : relRoutingApi.isActive ? "move"
+                                    : state.mode === "link" ? "crosshair"
+                                        : state.mode === "pan" ? "grab"
+                                            : state.mode === "addClass" ? "copy"
+                                                : "default",
                     userSelect: "none",
                 }}
                 onMouseMove={input.onMouseMove}
@@ -198,6 +230,20 @@ export default function DiagramCanvas() {
                             state.setSelectedId(null);
                             ctxMenu.close();
                         }}
+                        onStartReconnect={({ id, end }) => {
+                            state.setSelectedRelationId(id);
+                            state.setSelectedId(null);
+                            ctxMenu.close();
+                            relReconnectApi.start(id, end);
+                        }}
+                        getEffectiveControlPoints={relRoutingApi.getEffectiveControlPoints}
+                        onStartDragControlPoint={({ id, index }) => {
+                            state.setSelectedRelationId(id);
+                            state.setSelectedId(null);
+                            ctxMenu.close();
+                            (input as any).beginRoutingDragSnapshotCapture();
+                            relRoutingApi.start(id, index);
+                        }}
                         onContextMenuRelation={({ id, clientX, clientY }) => {
                             if (!svgRef.current) return;
 
@@ -222,6 +268,19 @@ export default function DiagramCanvas() {
                             y1={relApi.previewLine.a.y}
                             x2={relApi.previewLine.b.x}
                             y2={relApi.previewLine.b.y}
+                            stroke="#6aa9ff"
+                            strokeWidth={2}
+                            strokeDasharray="6 4"
+                            pointerEvents="none"
+                        />
+                    )}
+
+                    {relReconnectApi.previewLine && (
+                        <line
+                            x1={relReconnectApi.previewLine.a.x}
+                            y1={relReconnectApi.previewLine.a.y}
+                            x2={relReconnectApi.previewLine.b.x}
+                            y2={relReconnectApi.previewLine.b.y}
                             stroke="#6aa9ff"
                             strokeWidth={2}
                             strokeDasharray="6 4"
@@ -257,23 +316,37 @@ export default function DiagramCanvas() {
                                 methods={displayMethods}
                                 selected={isSelected}
                                 editing={isSelected && editApi.editingName}
+                                onHoverStart={() => {
+                                    if (state.mode === "link") relApi.hoverTo(c.id);
+                                    if (relReconnectApi.isActive) relReconnectApi.hoverTo(c.id);
+                                }}
+                                onHoverEnd={() => {
+                                    if (state.mode === "link") relApi.clearHover();
+                                    if (relReconnectApi.isActive) relReconnectApi.clearHover();
+                                }}
                                 onMouseDown={e => input.onNodeMouseDown(c.id, e)}
                                 onResizeStart={(handle, e) => input.onResizeStart(c.id, handle, e)}
                                 onSelect={e => input.onNodeSelectOnly(c.id, e)}
                                 onDoubleClickName={() => {
                                     if (state.mode === "link") return;
+                                    if (relReconnectApi.isActive) return;
+                                    if (relRoutingApi.isActive) return;
                                     state.setSelectedId(c.id);
                                     state.setSelectedRelationId(null);
                                     requestAnimationFrame(() => editApi.startEditName());
                                 }}
                                 onDoubleClickAttribute={i => {
                                     if (state.mode === "link") return;
+                                    if (relReconnectApi.isActive) return;
+                                    if (relRoutingApi.isActive) return;
                                     state.setSelectedId(c.id);
                                     state.setSelectedRelationId(null);
                                     requestAnimationFrame(() => editApi.startEditAttribute(i));
                                 }}
                                 onDoubleClickMethod={i => {
                                     if (state.mode === "link") return;
+                                    if (relReconnectApi.isActive) return;
+                                    if (relRoutingApi.isActive) return;
                                     state.setSelectedId(c.id);
                                     state.setSelectedRelationId(null);
                                     requestAnimationFrame(() => editApi.startEditMethod(i));
@@ -332,6 +405,33 @@ export default function DiagramCanvas() {
                     )}
                 </g>
             </svg>
+
+            <div
+                style={{
+                    position: "absolute",
+                    top: 12,
+                    right: 12,
+                    width: 340,
+                    maxHeight: "calc(100% - 24px)",
+                    overflow: "auto",
+                    zIndex: 10,
+                }}
+            >
+                <Inspector
+                    selectedClass={state.selectedClass}
+                    selectedRelation={selectedRelation}
+                    getClassNameById={getClassNameById}
+                    actions={{
+                        setClassName: actions.setClassName,
+                        setClassAttributes: actions.setClassAttributes,
+                        setClassMethods: actions.setClassMethods,
+                        setRelationKindOnSelected: actions.setRelationKindOnSelected,
+                        setRelationLabelOnSelected: actions.setRelationLabelOnSelected,
+                        deleteSelected: actions.deleteSelected,
+                        duplicateSelected: actions.duplicateSelected,
+                    }}
+                />
+            </div>
 
             <ContextMenu
                 open={ctxMenu.open}

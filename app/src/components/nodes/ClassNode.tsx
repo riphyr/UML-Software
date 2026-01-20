@@ -25,6 +25,8 @@ type Props = {
 
     onMouseDown?: (e: React.MouseEvent) => void;     // drag (fond)
     onSelect?: (e: React.MouseEvent) => void;        // select-only (zones texte)
+    onHoverStart?: () => void;
+    onHoverEnd?: () => void;
     onDoubleClickName?: () => void;
     onNameChange?: (value: string) => void;          // (plus utilisé ici, gardé si tu veux)
     onResizeStart?: (handle: Handle, e: React.MouseEvent) => void;
@@ -50,6 +52,8 @@ export default function ClassNode({
                                       editing,
                                       onMouseDown,
                                       onSelect,
+                                      onHoverStart,
+                                      onHoverEnd,
                                       onDoubleClickName,
                                       onResizeStart,
                                       onDoubleClickAttribute,
@@ -75,6 +79,8 @@ export default function ClassNode({
     return (
         <g
             transform={`translate(${x}, ${y})`}
+            onMouseEnter={() => onHoverStart?.()}
+            onMouseLeave={() => onHoverEnd?.()}
             onContextMenu={e => {
                 e.preventDefault();
                 e.stopPropagation();

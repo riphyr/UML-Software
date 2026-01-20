@@ -31,7 +31,6 @@ type RelCreationApi = {
     mode: boolean;
     hasFrom: boolean;
 
-    // NEW: contrôle explicite du mode (piloté par state.mode)
     setActive: (active: boolean) => void;
 
     toggleMode: () => void;
@@ -40,6 +39,24 @@ type RelCreationApi = {
     cancel: () => void;
     setKind: (k: UmlRelation["kind"]) => void;
     updateToWorld: (x: number, y: number) => void;
+};
+
+type RelReconnectApi = {
+    isActive: boolean;
+    hoverToId: string | null;
+    updateToWorld: (x: number, y: number) => void;
+    commitTo: (id: string) => void;
+    cancel: () => void;
+};
+
+type RelRoutingApi = {
+    isActive: boolean;
+    relationId: string | null;
+
+    start: (relationId: string, index: number) => void;
+    cancel: () => void;
+    updateToWorld: (x: number, y: number) => void;
+    commit: () => void;
 };
 
 type EditApi = {
@@ -70,6 +87,8 @@ export function useDiagramInput(args: {
     cameraApi: CameraApi;
     nodeManip: NodeManipApi;
     relApi: RelCreationApi;
+    relReconnectApi: RelReconnectApi;
+    relRoutingApi: RelRoutingApi;
     editApi: EditApi;
     undoApi: UndoApi;
     ctxMenu: CtxMenuApi;
@@ -81,7 +100,6 @@ export function useDiagramInput(args: {
         setRelationKindOnSelected: (k: UmlRelation["kind"]) => void;
         editSelectedRelationLabel: () => void;
 
-        // NEW: pour le mode addClass
         createClassAt: (worldX: number, worldY: number) => void;
     };
 }) {
@@ -93,6 +111,8 @@ export function useDiagramInput(args: {
         cameraApi,
         nodeManip,
         relApi,
+        relReconnectApi,
+        relRoutingApi,
         editApi,
         undoApi,
         ctxMenu,
@@ -101,6 +121,7 @@ export function useDiagramInput(args: {
     } = args;
 
     const manipStartSnapshotRef = useRef<DiagramSnapshotV2 | null>(null);
+    const routingStartSnapshotRef = useRef<DiagramSnapshotV2 | null>(null);
 
     useEffect(() => {
         if (state.mode === "link") relApi.setActive(true);
@@ -112,6 +133,28 @@ export function useDiagramInput(args: {
 
         ctxMenu.close();
         focusRoot();
+
+        // priorité : drag routing en cours => clic vide annule (sans commit)
+        if (relRoutingApi.isActive) {
+            e.preventDefault();
+            relRoutingApi.cancel();
+            routingStartSnapshotRef.current = null;
+            return;
+        }
+
+        // priorité : reconnexion en cours => clic vide annule
+        if (relReconnectApi.isActive) {
+            e.preventDefault();
+            relReconnectApi.cancel();
+            return;
+        }
+
+        if (state.mode === "link") {
+            e.preventDefault();
+            relApi.cancel();
+            state.setMode("select");
+            return;
+        }
 
         if (state.mode === "addClass") {
             editApi.commitLineEdit();
@@ -127,7 +170,6 @@ export function useDiagramInput(args: {
             return;
         }
 
-        // mode pan OU select : désélection + pan si pan, sinon pan autorisé uniquement sur fond
         editApi.commitLineEdit();
         editApi.commitNameEdit();
 
@@ -175,6 +217,22 @@ export function useDiagramInput(args: {
     function onNodeMouseDown(id: string, e: any) {
         ctxMenu.close();
 
+        // drag routing actif => pas de drag node
+        if (relRoutingApi.isActive) {
+            e.stopPropagation();
+            focusRoot();
+            cameraApi.allowPan(false);
+            return;
+        }
+
+        // reconnexion active => pas de drag node
+        if (relReconnectApi.isActive) {
+            e.stopPropagation();
+            focusRoot();
+            cameraApi.allowPan(false);
+            return;
+        }
+
         if (relApi.mode) {
             handleNodeClickForRelationMode(id, e);
             return;
@@ -195,6 +253,20 @@ export function useDiagramInput(args: {
     function onNodeSelectOnly(id: string, e: any) {
         ctxMenu.close();
 
+        if (relRoutingApi.isActive) {
+            e.stopPropagation();
+            focusRoot();
+            cameraApi.allowPan(false);
+            return;
+        }
+
+        if (relReconnectApi.isActive) {
+            e.stopPropagation();
+            focusRoot();
+            cameraApi.allowPan(false);
+            return;
+        }
+
         if (relApi.mode) {
             handleNodeClickForRelationMode(id, e);
             return;
@@ -212,6 +284,8 @@ export function useDiagramInput(args: {
     function onResizeStart(id: string, handle: ResizeHandle, e: any) {
         ctxMenu.close();
         if (relApi.mode) return;
+        if (relReconnectApi.isActive) return;
+        if (relRoutingApi.isActive) return;
 
         e.stopPropagation();
         focusRoot();
@@ -228,22 +302,56 @@ export function useDiagramInput(args: {
     function onMouseMove(e: any) {
         if (ctxMenu.open) return;
 
-        if (relApi.mode && relApi.hasFrom && svgRef.current) {
+        if (svgRef.current) {
             const rect = svgRef.current.getBoundingClientRect();
             const sx = (e as any).clientX - rect.left;
             const sy = (e as any).clientY - rect.top;
             const w = screenToWorld(sx, sy, cameraApi.camera);
-            relApi.updateToWorld(w.x, w.y);
+
+            if (relRoutingApi.isActive) {
+                relRoutingApi.updateToWorld(w.x, w.y);
+            } else if (relReconnectApi.isActive) {
+                relReconnectApi.updateToWorld(w.x, w.y);
+            } else if (relApi.mode && relApi.hasFrom) {
+                relApi.updateToWorld(w.x, w.y);
+            }
         }
 
-        const usedByNode = nodeManip.onMouseMove(e);
-        if (usedByNode) return;
+        if (!relRoutingApi.isActive && !relReconnectApi.isActive) {
+            const usedByNode = nodeManip.onMouseMove(e);
+            if (usedByNode) return;
+        }
 
         cameraApi.panMove(e);
     }
 
     function onMouseUp() {
         cameraApi.endPan();
+
+        // commit routing drag
+        if (relRoutingApi.isActive) {
+            if (routingStartSnapshotRef.current) {
+                undoApi.pushSnapshot(routingStartSnapshotRef.current);
+            }
+            routingStartSnapshotRef.current = null;
+            relRoutingApi.commit();
+            nodeManip.stop();
+            manipStartSnapshotRef.current = null;
+            return;
+        }
+
+        // commit/cancel reconnexion
+        if (relReconnectApi.isActive) {
+            if (relReconnectApi.hoverToId) {
+                undoApi.pushSnapshot();
+                relReconnectApi.commitTo(relReconnectApi.hoverToId);
+            } else {
+                relReconnectApi.cancel();
+            }
+            nodeManip.stop();
+            manipStartSnapshotRef.current = null;
+            return;
+        }
 
         const changed = nodeManip.consumeDidChange();
         nodeManip.stop();
@@ -255,6 +363,21 @@ export function useDiagramInput(args: {
     }
 
     function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+        // ESC : priorité routing
+        if (e.key === "Escape" && relRoutingApi.isActive) {
+            e.preventDefault();
+            relRoutingApi.cancel();
+            routingStartSnapshotRef.current = null;
+            return;
+        }
+
+        // ESC : ensuite reconnexion
+        if (e.key === "Escape" && relReconnectApi.isActive) {
+            e.preventDefault();
+            relReconnectApi.cancel();
+            return;
+        }
+
         if (e.ctrlKey && !editApi.editingName && !editApi.isEditingLine) {
             const k = e.key.toLowerCase();
 
@@ -340,6 +463,14 @@ export function useDiagramInput(args: {
         }
     }
 
+    // IMPORTANT : le démarrage du drag de point de contrôle se fait via DiagramCanvas (callback).
+    // Pour l'undo, on capture le snapshot au 1er mouvement effectif.
+    // Ici : on capture au moment où le drag démarre, depuis le clic handle (dans DiagramCanvas, juste avant relRoutingApi.start).
+    // => on l’expose via une méthode privée simple ci-dessous.
+    function beginRoutingDragSnapshotCapture() {
+        if (!routingStartSnapshotRef.current) routingStartSnapshotRef.current = makeSnapshot();
+    }
+
     return {
         onBackgroundMouseDown,
         onBackgroundContextMenu,
@@ -349,5 +480,8 @@ export function useDiagramInput(args: {
         onMouseMove,
         onMouseUp,
         onKeyDown,
+
+        // utilisé depuis DiagramCanvas au clic sur un control point
+        beginRoutingDragSnapshotCapture,
     };
 }

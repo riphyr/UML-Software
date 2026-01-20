@@ -1,7 +1,9 @@
 import { useMemo } from "react";
-import type { UmlRelation } from "../../model/relation";
+import type { UmlRelation, RelationPoint } from "../../model/relation";
 import type { ViewsById } from "../../model/views";
 import type { NodeView } from "../../model/view";
+
+type Side = "N" | "E" | "S" | "W";
 
 type Props = {
     relations: UmlRelation[];
@@ -10,32 +12,46 @@ type Props = {
     selectedRelationId: string | null;
     onSelectRelation: (id: string) => void;
 
+    // Reconnect (étape 4)
+    onStartReconnect: (args: { id: string; end: "from" | "to" }) => void;
+
+    // Routage (étape 5)
+    getEffectiveControlPoints: (r: UmlRelation) => RelationPoint[];
+    onStartDragControlPoint: (args: { id: string; index: number }) => void;
+
     onContextMenuRelation: (args: { id: string; clientX: number; clientY: number }) => void;
 };
 
-function center(v: NodeView) {
+function center(v: NodeView): RelationPoint {
     return { x: v.x + v.width / 2, y: v.y + v.height / 2 };
 }
 
-// intersection bord rect (from) vers (to)
-function computeAnchor(from: NodeView, to: NodeView) {
-    const c1 = center(from);
-    const c2 = center(to);
+function chooseSide(from: NodeView, toPoint: RelationPoint): Side {
+    const c = center(from);
+    const dx = toPoint.x - c.x;
+    const dy = toPoint.y - c.y;
+    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? "E" : "W";
+    return dy >= 0 ? "S" : "N";
+}
 
-    const dx = c2.x - c1.x;
-    const dy = c2.y - c1.y;
+function sideMidpoint(v: NodeView, side: Side): RelationPoint {
+    const cx = v.x + v.width / 2;
+    const cy = v.y + v.height / 2;
+    if (side === "N") return { x: cx, y: v.y };
+    if (side === "S") return { x: cx, y: v.y + v.height };
+    if (side === "W") return { x: v.x, y: cy };
+    return { x: v.x + v.width, y: cy };
+}
 
-    const hw = from.width / 2;
-    const hh = from.height / 2;
-
-    const ax = Math.abs(dx) < 1e-6 ? 1e-6 : dx;
-    const ay = Math.abs(dy) < 1e-6 ? 1e-6 : dy;
-
-    const tx = hw / Math.abs(ax);
-    const ty = hh / Math.abs(ay);
-    const t = Math.min(tx, ty);
-
-    return { x: c1.x + dx * t, y: c1.y + dy * t };
+function autoControlPoints(a: RelationPoint, b: RelationPoint): RelationPoint[] {
+    const sameX = Math.abs(a.x - b.x) < 0.001;
+    const sameY = Math.abs(a.y - b.y) < 0.001;
+    if (sameX || sameY) return [];
+    const midX = (a.x + b.x) / 2;
+    return [
+        { x: midX, y: a.y },
+        { x: midX, y: b.y },
+    ];
 }
 
 function markerEnd(kind: UmlRelation["kind"]) {
@@ -55,26 +71,53 @@ export default function RelationLayer(p: Props) {
         viewsById,
         selectedRelationId,
         onSelectRelation,
+        onStartReconnect,
+        getEffectiveControlPoints,
+        onStartDragControlPoint,
         onContextMenuRelation,
     } = p;
 
-    const lines = useMemo(() => {
+    const routed = useMemo(() => {
         return relations
             .map(r => {
                 const from = viewsById[r.fromId];
                 const to = viewsById[r.toId];
                 if (!from || !to) return null;
 
-                const a = computeAnchor(from, to);
-                const b = computeAnchor(to, from);
+                // points de contrôle effectifs (réels ou auto + override du drag)
+                let cps = getEffectiveControlPoints(r);
 
-                const mx = (a.x + b.x) / 2;
-                const my = (a.y + b.y) / 2;
+                // anchors N/E/S/W : on choisit le côté en regardant le "prochain point" du chemin
+                const fromTarget = cps.length > 0 ? cps[0] : center(to);
+                const toTarget = cps.length > 0 ? cps[cps.length - 1] : center(from);
 
-                return { r, a, b, m: { x: mx, y: my } };
+                const a = sideMidpoint(from, chooseSide(from, fromTarget));
+                const b = sideMidpoint(to, chooseSide(to, toTarget));
+
+                // si aucun control point, on génère un auto local (basé sur anchors fixes)
+                if (!r.controlPoints || r.controlPoints.length === 0) {
+                    const auto = autoControlPoints(a, b);
+                    // si le hook renvoie aussi auto, cps sera déjà égal à auto — mais on reste robuste
+                    if (cps.length === 0 && auto.length > 0) cps = auto;
+                }
+
+                const points: RelationPoint[] = [a, ...cps, b];
+
+                // label au milieu (approx : milieu de la polyline par index)
+                const midIdx = Math.floor(points.length / 2);
+                const m = points[midIdx];
+
+                return { r, a, b, cps, points, m };
             })
-            .filter(Boolean) as { r: UmlRelation; a: any; b: any; m: any }[];
-    }, [relations, viewsById]);
+            .filter(Boolean) as {
+            r: UmlRelation;
+            a: RelationPoint;
+            b: RelationPoint;
+            cps: RelationPoint[];
+            points: RelationPoint[];
+            m: RelationPoint;
+        }[];
+    }, [relations, viewsById, getEffectiveControlPoints]);
 
     return (
         <g>
@@ -96,20 +139,27 @@ export default function RelationLayer(p: Props) {
                 </marker>
             </defs>
 
-            {lines.map(({ r, a, b, m }) => {
+            {routed.map(({ r, a, b, cps, points, m }) => {
                 const selected = r.id === selectedRelationId;
                 const stroke = selected ? "#6aa9ff" : "#cfd6e6";
                 const sw = selected ? 2.5 : 1.5;
 
+                const HANDLE_R = 4;
+                const HANDLE_HIT_R = 10;
+
+                const CONTROL_R = 4;
+                const CONTROL_HIT_R = 10;
+
+                const pointsAttr = points.map(p => `${p.x},${p.y}`).join(" ");
+
                 return (
                     <g key={r.id}>
-                        <line
-                            x1={a.x}
-                            y1={a.y}
-                            x2={b.x}
-                            y2={b.y}
+                        {/* hitbox polyline (sélection fiable) */}
+                        <polyline
+                            points={pointsAttr}
+                            fill="none"
                             stroke="transparent"
-                            strokeWidth={12}
+                            strokeWidth={14}
                             onMouseDown={(e) => {
                                 e.stopPropagation();
                                 onSelectRelation(r.id);
@@ -123,17 +173,72 @@ export default function RelationLayer(p: Props) {
                             style={{ cursor: "pointer" }}
                         />
 
-                        <line
-                            x1={a.x}
-                            y1={a.y}
-                            x2={b.x}
-                            y2={b.y}
+                        {/* polyline visible */}
+                        <polyline
+                            points={pointsAttr}
+                            fill="none"
                             stroke={stroke}
                             strokeWidth={sw}
                             markerEnd={markerEnd(r.kind)}
                             markerStart={markerStart(r.kind)}
                             pointerEvents="none"
                         />
+
+                        {/* handles reconnexion (extrémités) */}
+                        {selected && (
+                            <g>
+                                <circle
+                                    cx={a.x}
+                                    cy={a.y}
+                                    r={HANDLE_HIT_R}
+                                    fill="transparent"
+                                    onMouseDown={(e) => {
+                                        e.stopPropagation();
+                                        onSelectRelation(r.id);
+                                        onStartReconnect({ id: r.id, end: "from" });
+                                    }}
+                                    style={{ cursor: "crosshair" }}
+                                />
+                                <circle cx={a.x} cy={a.y} r={HANDLE_R} fill={stroke} pointerEvents="none" />
+
+                                <circle
+                                    cx={b.x}
+                                    cy={b.y}
+                                    r={HANDLE_HIT_R}
+                                    fill="transparent"
+                                    onMouseDown={(e) => {
+                                        e.stopPropagation();
+                                        onSelectRelation(r.id);
+                                        onStartReconnect({ id: r.id, end: "to" });
+                                    }}
+                                    style={{ cursor: "crosshair" }}
+                                />
+                                <circle cx={b.x} cy={b.y} r={HANDLE_R} fill={stroke} pointerEvents="none" />
+                            </g>
+                        )}
+
+                        {/* points de contrôle (drag) */}
+                        {selected && cps.length > 0 && (
+                            <g>
+                                {cps.map((p, idx) => (
+                                    <g key={idx}>
+                                        <circle
+                                            cx={p.x}
+                                            cy={p.y}
+                                            r={CONTROL_HIT_R}
+                                            fill="transparent"
+                                            onMouseDown={(e) => {
+                                                e.stopPropagation();
+                                                onSelectRelation(r.id);
+                                                onStartDragControlPoint({ id: r.id, index: idx });
+                                            }}
+                                            style={{ cursor: "move" }}
+                                        />
+                                        <circle cx={p.x} cy={p.y} r={CONTROL_R} fill={stroke} pointerEvents="none" />
+                                    </g>
+                                ))}
+                            </g>
+                        )}
 
                         {r.label && r.label.trim().length > 0 && (
                             <text
