@@ -13,19 +13,19 @@ type Params = {
     viewsById: ViewsById;
     setViewsById: React.Dispatch<React.SetStateAction<ViewsById>>;
 
-    setSelectedId: React.Dispatch<React.SetStateAction<string | null>>;
+    clearSelection: () => void;
 
     relations?: UmlRelation[];
     setRelations?: React.Dispatch<React.SetStateAction<UmlRelation[]>>;
 };
 
 export function useDiagramPersistence(p: Params) {
-    const { classes, viewsById, setClasses, setViewsById, setSelectedId, relations, setRelations } = p;
+    const { classes, viewsById, setClasses, setViewsById, clearSelection, relations, setRelations } = p;
 
     function applySnapshot(snap: { classes: UmlClass[]; viewsById: ViewsById; relations?: UmlRelation[] }) {
         setClasses(snap.classes);
         setViewsById(snap.viewsById);
-        setSelectedId(null);
+        clearSelection();
         if (setRelations) setRelations(snap.relations ?? []);
     }
 

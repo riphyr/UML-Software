@@ -75,31 +75,35 @@ export function useDiagramActions(args: {
         setViewsById,
         relations,
         setRelations,
+
+        // mono (primaire)
         selectedId,
         setSelectedId,
         selectedRelationId,
         setSelectedRelationId,
+
+        // multi (réel)
+        selectedIds,
+        setSelectedIds,
+        selectedRelationIds,
+        setSelectedRelationIds,
+        clearSelection,
     } = state;
 
     function getClassById(id: string) {
         return classes.find((c) => c.id === id) ?? null;
     }
 
-    function applyClassEdits(
-        id: string,
-        next: { name: string; attributes: string[]; methods: string[] }
-    ) {
+    function applyClassEdits(id: string, next: { name: string; attributes: string[]; methods: string[] }) {
         undo.pushSnapshot();
 
-        setClasses(prev =>
-            prev.map(c =>
-                c.id === id
-                    ? { ...c, name: next.name, attributes: next.attributes, methods: next.methods }
-                    : c
+        setClasses((prev: UmlClass[]) =>
+            prev.map((c) =>
+                c.id === id ? { ...c, name: next.name, attributes: next.attributes, methods: next.methods } : c
             )
         );
 
-        setViewsById(prev => {
+        setViewsById((prev) => {
             const patch = applyAutoSizeIfNeeded({
                 view: prev[id],
                 nextClass: { id, name: next.name, attributes: next.attributes, methods: next.methods },
@@ -132,7 +136,6 @@ export function useDiagramActions(args: {
         const v = viewsById[id];
         const mode = (v?.sizeMode ?? "auto") === "locked" ? "auto" : "locked";
         setClassSizeMode(id, mode);
-        // IMPORTANT: pas de recalcul immédiat quand on repasse en auto (ton choix #7).
     }
 
     function createClassAtWorld(worldX: number, worldY: number) {
@@ -159,6 +162,7 @@ export function useDiagramActions(args: {
         setClasses([...classes, newClass]);
         setViewsById((prev) => addView(prev, newView));
 
+        // sélection mono (helper) => aligne aussi multi
         setSelectedId(id);
         setSelectedRelationId(null);
 
@@ -176,22 +180,49 @@ export function useDiagramActions(args: {
         // purge relations liées
         setRelations(relations.filter((r) => r.fromId !== id && r.toId !== id));
 
-        setSelectedId((prev) => (prev === id ? null : prev));
+        if (selectedId === id) setSelectedId(null);
         setSelectedRelationId(null);
+        setSelectedIds((prev: string[]) => prev.filter((x) => x !== id));
+        // relations multi: on laisse, elles seront purgées si orphelines (déjà filtrées)
     }
 
     function deleteSelected() {
-        if (selectedRelationId) {
-            setRelations(relations.filter((r) => r.id !== selectedRelationId));
-            setSelectedRelationId(null);
-            return;
+        const nodeIds = selectedIds.length > 0 ? selectedIds : selectedId ? [selectedId] : [];
+        const relIds =
+            selectedRelationIds.length > 0 ? selectedRelationIds : selectedRelationId ? [selectedRelationId] : [];
+        if (nodeIds.length === 0 && relIds.length === 0) return;
+
+        undo.pushSnapshot();
+
+        edit.commitLineEdit();
+        edit.commitNameEdit();
+
+        const nodeSet = new Set(nodeIds);
+        const relSet = new Set(relIds);
+
+        if (nodeIds.length > 0) {
+            setClasses((prev: UmlClass[]) => prev.filter((c) => !nodeSet.has(c.id)));
+            setViewsById((prev) => {
+                let next = prev;
+                for (const id of nodeIds) next = removeView(next, id);
+                return next;
+            });
         }
-        if (!selectedId) return;
-        deleteSelectedClass(selectedId);
+
+        setRelations((prev: UmlRelation[]) =>
+            prev.filter((r) => {
+                if (relSet.has(r.id)) return false;
+                if (nodeSet.has(r.fromId) || nodeSet.has(r.toId)) return false;
+                return true;
+            })
+        );
+
+        clearSelection();
     }
 
     function setRelationKindOnSelected(kind: UmlRelation["kind"]) {
         if (!selectedRelationId) return;
+        undo.pushSnapshot();
         setRelations(relations.map((r) => (r.id === selectedRelationId ? { ...r, kind } : r)));
     }
 
@@ -204,6 +235,7 @@ export function useDiagramActions(args: {
         const next = window.prompt("Relation label:", r.label ?? "");
         if (next === null) return;
 
+        undo.pushSnapshot();
         setRelations(relations.map((x) => (x.id === selectedRelationId ? { ...x, label: next } : x)));
     }
 
@@ -281,7 +313,6 @@ export function useDiagramActions(args: {
                 name: `${src.name}Copy`,
             };
 
-            // copie: on conserve sizeMode+dimensions de la vue source
             const viewCopy: NodeView = {
                 ...v,
                 id,
@@ -316,7 +347,12 @@ export function useDiagramActions(args: {
         if (a.type === "delete_relation") {
             undo.pushSnapshot();
             setRelations(relations.filter((r) => r.id !== a.id));
-            setSelectedRelationId((prev) => (prev === a.id ? null : prev));
+
+            // helpers mono = pas de callback
+            if (selectedRelationId === a.id) setSelectedRelationId(null);
+
+            // multi: purge
+            setSelectedRelationIds((prev: string[]) => prev.filter((x) => x !== a.id));
             return;
         }
 
@@ -345,8 +381,7 @@ export function useDiagramActions(args: {
         state.setViewsById(s.viewsById);
         state.setRelations(s.relations);
 
-        state.setSelectedId(null);
-        state.setSelectedRelationId(null);
+        state.clearSelection();
 
         ctxMenu.close();
         rel.cancel();
@@ -363,7 +398,6 @@ export function useDiagramActions(args: {
         const nextClass: UmlClass = { ...c, name };
         setClasses(classes.map((cc) => (cc.id === id ? nextClass : cc)));
 
-        // auto: recalcul (c'est un changement de contenu)
         applyAutoSizeForClassIfNeeded(id, nextClass);
     }
 
@@ -435,7 +469,6 @@ export function useDiagramActions(args: {
 
         createClassAtWorld,
 
-        // auto-size UX
         setClassSizeMode,
         toggleClassSizeMode,
     };

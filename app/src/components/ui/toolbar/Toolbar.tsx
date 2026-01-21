@@ -38,14 +38,14 @@ export default function Toolbar(p: {
                 <ToolbarButton active={p.mode === "select"} title="Select (V)" onClick={() => p.setMode("select")}>
                     Select
                 </ToolbarButton>
-                <ToolbarButton active={p.mode === "pan"} title="Pan (H)" onClick={() => p.setMode("pan")}>
-                    Pan
+                <ToolbarButton active={p.mode === "multiSelect"} title="Multi Selection (M)" onClick={() => p.setMode("multiSelect")}>
+                    Multi-select
                 </ToolbarButton>
                 <ToolbarButton active={p.mode === "link"} title="Link (L)" onClick={() => p.setMode("link")}>
                     Link
                 </ToolbarButton>
                 <ToolbarButton active={p.mode === "addClass"} title="Add Class (C)" onClick={() => p.setMode("addClass")}>
-                    +Class
+                    New class
                 </ToolbarButton>
             </div>
 

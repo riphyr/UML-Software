@@ -1,4 +1,4 @@
-export type EditorMode = "select" | "pan" | "link" | "addClass";
+export type EditorMode = "select" | "multiSelect" | "link" | "addClass";
 
 export type GridState = {
     enabled: boolean;

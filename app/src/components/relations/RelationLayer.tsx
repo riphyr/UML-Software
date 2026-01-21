@@ -7,8 +7,9 @@ type Props = {
     relations: UmlRelation[];
     viewsById: ViewsById;
 
+    selectedRelationIds?: string[];
     selectedRelationId: string | null;
-    onSelectRelation: (id: string) => void;
+    onSelectRelation: (id: string, e?: React.MouseEvent) => void;
 
     onStartReconnect: (args: { id: string; end: "from" | "to" }) => void;
 
@@ -149,8 +150,16 @@ function dist2(p1: RelationPoint, p2: RelationPoint) {
 }
 
 export default function RelationLayer(p: Props) {
-    const { relations, viewsById, selectedRelationId, onSelectRelation, onStartReconnect, routing, onContextMenuRelation } =
-        p;
+    const {
+        relations,
+        viewsById,
+        selectedRelationId,
+        selectedRelationIds,
+        onSelectRelation,
+        onStartReconnect,
+        routing,
+        onContextMenuRelation,
+    } = p;
 
     const getControls = routing?.getEffectiveControlPoints;
 
@@ -228,7 +237,9 @@ export default function RelationLayer(p: Props) {
             </defs>
 
             {paths.map(({ r, a, b, d, m }) => {
-                const selected = r.id === selectedRelationId;
+                const selected = selectedRelationIds
+                    ? selectedRelationIds.includes(r.id)
+                    : r.id === selectedRelationId;
                 const stroke = selected ? "#6aa9ff" : "#cfd6e6";
                 const sw = selected ? 2.5 : 1.5;
 
@@ -251,12 +262,12 @@ export default function RelationLayer(p: Props) {
                             strokeWidth={12}
                             onMouseDown={(e) => {
                                 e.stopPropagation();
-                                onSelectRelation(r.id);
+                                onSelectRelation(r.id, e)
                             }}
                             onContextMenu={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                onSelectRelation(r.id);
+                                onSelectRelation(r.id, undefined);
                                 onContextMenuRelation({ id: r.id, clientX: e.clientX, clientY: e.clientY });
                             }}
                             style={{ cursor: "pointer" }}
@@ -291,7 +302,7 @@ export default function RelationLayer(p: Props) {
                                                 onMouseDown={(e) => {
                                                     if (!routing) return;
                                                     e.stopPropagation();
-                                                    onSelectRelation(r.id);
+                                                    onSelectRelation(r.id, e)
 
                                                     // endpoints (idx 0 / last) : drag => relocalisation manuelle d'ancre
                                                     // (useRelationRouting commit() fera le snap sur un port)
@@ -315,7 +326,7 @@ export default function RelationLayer(p: Props) {
                                     fill="transparent"
                                     onMouseDown={(e) => {
                                         e.stopPropagation();
-                                        onSelectRelation(r.id);
+                                        onSelectRelation(r.id, e)
                                         onStartReconnect({ id: r.id, end: "from" });
                                     }}
                                     style={{ cursor: "crosshair" }}
@@ -329,7 +340,7 @@ export default function RelationLayer(p: Props) {
                                     fill="transparent"
                                     onMouseDown={(e) => {
                                         e.stopPropagation();
-                                        onSelectRelation(r.id);
+                                        onSelectRelation(r.id, e)
                                         onStartReconnect({ id: r.id, end: "to" });
                                     }}
                                     style={{ cursor: "crosshair" }}

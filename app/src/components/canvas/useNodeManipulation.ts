@@ -20,11 +20,12 @@ export function useNodeManipulation(params: {
     svgRef: React.RefObject<SVGSVGElement | null>;
     camera: Camera;
     getViewById: (id: string) => NodeView | undefined;
+    getSelectedNodeIds: () => string[];
     setViewsById: React.Dispatch<React.SetStateAction<ViewsById>>;
     disabled: boolean;
     grid?: GridSnap;
 }) {
-    const { svgRef, camera, getViewById, setViewsById, disabled, grid } = params;
+    const { svgRef, camera, getViewById, getSelectedNodeIds, setViewsById, disabled, grid } = params;
 
     const [draggingNode, setDraggingNode] = useState(false);
     const [resizing, setResizing] = useState<ResizeHandle | null>(null);
@@ -32,8 +33,11 @@ export function useNodeManipulation(params: {
     const activeIdRef = useRef<string | null>(null);
     const lastManipulatedIdRef = useRef<string | null>(null);
     const didChangeRef = useRef(false);
+    const lastDragDeltaRef = useRef<{ dx: number; dy: number } | null>(null);
 
     const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    const dragStart = useRef<{ wx: number; wy: number } | null>(null);
+    const dragStartViews = useRef<Record<string, { x: number; y: number }>>({});
     const resizeStart = useRef<{ x: number; y: number; w: number; h: number; vx: number; vy: number }>({
         x: 0,
         y: 0,
@@ -61,14 +65,23 @@ export function useNodeManipulation(params: {
         const { sx, sy } = getLocalScreenPoint(e);
         const world = screenToWorld(sx, sy, camera);
 
+        // group drag : si l'id cliqué fait partie de la sélection multi => on déplace tout le groupe.
+        const selected = getSelectedNodeIds();
+        const dragIds = selected.length > 1 && selected.includes(id) ? selected : [id];
+
         activeIdRef.current = id;
         lastManipulatedIdRef.current = id;
         didChangeRef.current = false;
 
-        dragOffset.current = {
-            x: world.x - view.x,
-            y: world.y - view.y,
-        };
+        dragStart.current = { wx: world.x, wy: world.y };
+        const startMap: Record<string, { x: number; y: number }> = {};
+        for (const nid of dragIds) {
+            const v = getViewById(nid);
+            if (v) startMap[nid] = { x: v.x, y: v.y };
+        }
+        dragStartViews.current = startMap;
+
+        dragOffset.current = { x: world.x - view.x, y: world.y - view.y };
 
         setDraggingNode(true);
     }
@@ -106,70 +119,77 @@ export function useNodeManipulation(params: {
         const { sx, sy } = getLocalScreenPoint(e);
         const world = screenToWorld(sx, sy, camera);
 
-        const MIN_W = 120;
-        const MIN_H = 60;
-
         if (resizing) {
-            const dx = world.x - resizeStart.current.x;
-            const dy = world.y - resizeStart.current.y;
+            const start = resizeStart.current;
 
-            let left = resizeStart.current.vx;
-            let top = resizeStart.current.vy;
-            let right = resizeStart.current.vx + resizeStart.current.w;
-            let bottom = resizeStart.current.vy + resizeStart.current.h;
+            let dx = world.x - start.x;
+            let dy = world.y - start.y;
 
-            if (resizing.includes("e")) right += dx;
-            if (resizing.includes("s")) bottom += dy;
-            if (resizing.includes("w")) left += dx;
-            if (resizing.includes("n")) top += dy;
+            let nx = start.vx;
+            let ny = start.vy;
+            let nw = start.w;
+            let nh = start.h;
 
-            // min size avant snap
-            if (right - left < MIN_W) {
-                if (resizing.includes("w")) left = right - MIN_W;
-                else right = left + MIN_W;
+            if (resizing.includes("e")) nw = Math.max(80, start.w + dx);
+            if (resizing.includes("s")) nh = Math.max(60, start.h + dy);
+            if (resizing.includes("w")) {
+                nw = Math.max(80, start.w - dx);
+                nx = start.vx + dx;
             }
-            if (bottom - top < MIN_H) {
-                if (resizing.includes("n")) top = bottom - MIN_H;
-                else bottom = top + MIN_H;
+            if (resizing.includes("n")) {
+                nh = Math.max(60, start.h - dy);
+                ny = start.vy + dy;
             }
 
-            // snap uniquement sur les bords manipulés
-            if (grid?.enabled) {
-                if (resizing.includes("w")) left = snap(left, grid);
-                if (resizing.includes("e")) right = snap(right, grid);
-                if (resizing.includes("n")) top = snap(top, grid);
-                if (resizing.includes("s")) bottom = snap(bottom, grid);
-
-                // re-min après snap
-                if (right - left < MIN_W) {
-                    if (resizing.includes("w")) left = right - MIN_W;
-                    else right = left + MIN_W;
-                }
-                if (bottom - top < MIN_H) {
-                    if (resizing.includes("n")) top = bottom - MIN_H;
-                    else bottom = top + MIN_H;
-                }
-            }
-
-            const nx = left;
-            const ny = top;
-            const nw = right - left;
-            const nh = bottom - top;
-
-            didChangeRef.current = true;
-            setViewsById(prev => updateView(prev, id, { x: nx, y: ny, width: nw, height: nh }));
-            return true;
-        }
-
-        if (draggingNode) {
-            let nx = world.x - dragOffset.current.x;
-            let ny = world.y - dragOffset.current.y;
-
+            nw = snap(nw, grid);
+            nh = snap(nh, grid);
             nx = snap(nx, grid);
             ny = snap(ny, grid);
 
             didChangeRef.current = true;
-            setViewsById(prev => updateView(prev, id, { x: nx, y: ny }));
+            setViewsById((prev) => updateView(prev, id, { x: nx, y: ny, width: nw, height: nh, sizeMode: "locked" }));
+            return true;
+        }
+
+        if (draggingNode) {
+            const start = dragStart.current;
+            const startViews = dragStartViews.current;
+
+            // fallback single
+            if (!start || !startViews[id]) {
+                let nx = world.x - dragOffset.current.x;
+                let ny = world.y - dragOffset.current.y;
+                nx = snap(nx, grid);
+                ny = snap(ny, grid);
+                didChangeRef.current = true;
+                setViewsById((prev) => updateView(prev, id, { x: nx, y: ny }));
+                lastDragDeltaRef.current = { dx: nx - (startViews[id]?.x ?? nx), dy: ny - (startViews[id]?.y ?? ny) };
+                return true;
+            }
+
+            const dx = world.x - start.wx;
+            const dy = world.y - start.wy;
+
+            // snap: basé sur le node actif, puis on applique le delta à tout le groupe.
+            const activeStart = startViews[id];
+            let nx = activeStart.x + dx;
+            let ny = activeStart.y + dy;
+            nx = snap(nx, grid);
+            ny = snap(ny, grid);
+
+            const ddx = nx - activeStart.x;
+            const ddy = ny - activeStart.y;
+            lastDragDeltaRef.current = { dx: ddx, dy: ddy };
+
+            didChangeRef.current = true;
+            setViewsById((prev) => {
+                let next = prev;
+                for (const [nid, v0] of Object.entries(startViews)) {
+                    next = updateView(next, nid, { x: v0.x + ddx, y: v0.y + ddy });
+                }
+                return next;
+            });
+
             return true;
         }
 
@@ -180,6 +200,15 @@ export function useNodeManipulation(params: {
         setDraggingNode(false);
         setResizing(null);
         activeIdRef.current = null;
+        dragStart.current = null;
+        dragStartViews.current = {};
+        lastDragDeltaRef.current = null;
+    }
+
+    function consumeLastDragDelta() {
+        const d = lastDragDeltaRef.current;
+        lastDragDeltaRef.current = null;
+        return d;
     }
 
     function consumeLastManipulatedId() {
@@ -202,6 +231,7 @@ export function useNodeManipulation(params: {
         onMouseMove,
         stop,
         consumeDidChange,
+        consumeLastDragDelta,
         consumeLastManipulatedId,
         getActiveId,
     };

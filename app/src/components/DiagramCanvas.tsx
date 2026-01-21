@@ -43,7 +43,7 @@ export default function DiagramCanvas() {
         setViewsById: state.setViewsById,
         relations: state.relations,
         setRelations: state.setRelations,
-        setSelectedId: state.setSelectedId,
+        clearSelection: state.clearSelection,
     });
 
     const cameraApi = useCamera(svgRef);
@@ -80,9 +80,11 @@ export default function DiagramCanvas() {
         svgRef,
         camera: cameraApi.camera,
         getViewById: (id: string) => state.viewsById[id],
+        getSelectedNodeIds: () => state.selectedIds,
         setViewsById: state.setViewsById,
         disabled:
-            (editApi.editingName || editApi.isEditingLine) ||
+            editApi.editingName ||
+            editApi.isEditingLine ||
             state.mode === "link" ||
             relReconnectApi.isActive ||
             relRoutingApi.isActive,
@@ -106,8 +108,7 @@ export default function DiagramCanvas() {
         state.setClasses(snap.classes);
         state.setViewsById(snap.viewsById);
         state.setRelations(snap.relations);
-        state.setSelectedId(null);
-        state.setSelectedRelationId(null);
+        state.clearSelection();
     }
 
     const undoApi = useUndoRedo({
@@ -164,12 +165,21 @@ export default function DiagramCanvas() {
     const attrsCount = state.selectedClass ? getAttrsCount(state.selectedClass.attributes.length) : 0;
     const methodsStartY = getMethodsStartY(attrsCount);
 
-    const selectedRelation =
-        state.selectedRelationId ? state.relations.find(r => r.id === state.selectedRelationId) ?? null : null;
+    const selectedRelation = state.selectedRelationId
+        ? state.relations.find((r) => r.id === state.selectedRelationId) ?? null
+        : null;
 
     function getClassNameById(id: string) {
-        return state.classes.find(c => c.id === id)?.name ?? id;
+        return state.classes.find((c) => c.id === id)?.name ?? id;
     }
+
+    const selectedClasses = state.selectedIds
+        .map((id) => state.classes.find((c) => c.id === id) ?? null)
+        .filter((x): x is NonNullable<typeof x> => !!x);
+
+    const selectedRelations = state.selectedRelationIds
+        .map((id) => state.relations.find((r) => r.id === id) ?? null)
+        .filter((x): x is NonNullable<typeof x> => !!x);
 
     return (
         <div
@@ -181,16 +191,23 @@ export default function DiagramCanvas() {
         >
             <Toolbar
                 mode={state.mode}
-                setMode={(m) => state.setMode(m)}
+                setMode={(m) => {
+                    state.setMode(m);
+                    state.setMultiSelectArmed(m === "multiSelect");
+                }}
                 grid={state.grid}
-                toggleGrid={() => state.setGrid(g => ({ ...g, enabled: !g.enabled }))}
-                setGridSize={(n) => state.setGrid(g => ({ ...g, size: Math.max(10, Math.round(n)) }))}
+                toggleGrid={() => state.setGrid((g) => ({ ...g, enabled: !g.enabled }))}
+                setGridSize={(n) => state.setGrid((g) => ({ ...g, size: Math.max(10, Math.round(n)) }))}
                 undo={() => undoApi.undo()}
                 redo={() => undoApi.redo()}
                 save={() => persistence.saveLocal()}
                 load={() => persistence.loadLocal()}
-                exportFile={() => { void persistence.exportFile(); }}
-                importFile={() => { void persistence.importFile(); }}
+                exportFile={() => {
+                    void persistence.exportFile();
+                }}
+                importFile={() => {
+                    void persistence.importFile();
+                }}
             />
 
             <svg
@@ -199,14 +216,19 @@ export default function DiagramCanvas() {
                 height="100%"
                 style={{
                     display: "block",
-                    cursor:
-                        cameraApi.isPanning ? "grabbing"
-                            : relReconnectApi.isActive ? "crosshair"
-                                : relRoutingApi.isActive ? "move"
-                                    : state.mode === "link" ? "crosshair"
-                                        : state.mode === "pan" ? "grab"
-                                            : state.mode === "addClass" ? "copy"
-                                                : "default",
+                    cursor: cameraApi.isPanning
+                        ? "grabbing"
+                        : relReconnectApi.isActive
+                            ? "crosshair"
+                            : relRoutingApi.isActive
+                                ? "move"
+                                : state.mode === "link"
+                                    ? "crosshair"
+                                    : state.mode === "multiSelect"
+                                        ? "default"
+                                        : state.mode === "addClass"
+                                            ? "copy"
+                                            : "default",
                     userSelect: "none",
                 }}
                 onMouseMove={(e) => {
@@ -222,7 +244,10 @@ export default function DiagramCanvas() {
                 onMouseUp={input.onMouseUp}
                 onMouseLeave={input.onMouseUp}
                 onWheel={(e) => {
-                    if (ctxMenu.open) { e.preventDefault(); return; }
+                    if (ctxMenu.open) {
+                        e.preventDefault();
+                        return;
+                    }
                     cameraApi.onWheel(e);
                 }}
             >
@@ -250,14 +275,24 @@ export default function DiagramCanvas() {
                         relations={state.relations}
                         viewsById={state.viewsById}
                         selectedRelationId={state.selectedRelationId}
-                        onSelectRelation={(id) => {
-                            state.setSelectedRelationId(id);
-                            state.setSelectedId(null);
+                        selectedRelationIds={state.selectedRelationIds}
+                        onSelectRelation={(id, e) => {
                             ctxMenu.close();
+
+                            if (e?.shiftKey) {
+                                state.setSelectedRelationIds((prev: string[]) => {
+                                    const has = prev.includes(id);
+                                    if (has) return prev.filter((x) => x !== id);
+                                    return [id, ...prev];
+                                });
+                                return;
+                            }
+
+                            state.setSelectedRelationId(id);
                         }}
                         onStartReconnect={({ id, end }) => {
                             state.setSelectedRelationId(id);
-                            state.setSelectedId(null);
+                            state.setSelectedIds([]);
                             ctxMenu.close();
                             relReconnectApi.start(id, end);
                         }}
@@ -270,7 +305,7 @@ export default function DiagramCanvas() {
                             const world = screenToWorld(sx, sy, cameraApi.camera);
 
                             state.setSelectedRelationId(id);
-                            state.setSelectedId(null);
+                            state.setSelectedIds([]);
 
                             ctxMenu.show(
                                 { x: clientX, y: clientY },
@@ -284,6 +319,20 @@ export default function DiagramCanvas() {
                             getEffectiveControlPoints: relRoutingApi.getEffectiveControlPoints,
                         }}
                     />
+
+                    {(input as any).boxRect && (
+                        <rect
+                            x={(input as any).boxRect.x}
+                            y={(input as any).boxRect.y}
+                            width={(input as any).boxRect.w}
+                            height={(input as any).boxRect.h}
+                            fill="rgba(106,169,255,0.15)"
+                            stroke="#6aa9ff"
+                            strokeWidth={1}
+                            strokeDasharray="6 4"
+                            pointerEvents="none"
+                        />
+                    )}
 
                     {relApi.previewLine && (
                         <line
@@ -311,16 +360,18 @@ export default function DiagramCanvas() {
                         />
                     )}
 
-                    {state.classes.map(c => {
+                    {state.classes.map((c) => {
                         const v = state.viewsById[c.id];
                         if (!v) return null;
 
-                        const isSelected = state.selectedId === c.id;
+                        const isSelected = state.selectedIds.includes(c.id);
 
                         const displayName = isSelected && editApi.editingName ? editApi.nameBuffer : c.name;
                         const displayAttributes =
                             isSelected && editApi.editingAttrIndex !== null
-                                ? c.attributes.map((a, idx) => (idx === editApi.editingAttrIndex ? editApi.editBuffer : a))
+                                ? c.attributes.map((a, idx) =>
+                                    idx === editApi.editingAttrIndex ? editApi.editBuffer : a
+                                )
                                 : c.attributes;
                         const displayMethods =
                             isSelected && editApi.editingMethodIndex !== null
@@ -347,9 +398,9 @@ export default function DiagramCanvas() {
                                     (state.mode === "select" && !state.selectedRelationId)
                                 }
                                 onPortHover={(side) => {
-                                    // IMPORTANT : le hover port doit piloter la preview (link ET reconnect)
                                     if ((relApi as any).mode) (relApi as any).hoverToPort?.(c.id, side ?? undefined);
-                                    if (relReconnectApi.isActive) (relReconnectApi as any).hoverToPort?.(c.id, side ?? undefined);
+                                    if (relReconnectApi.isActive)
+                                        (relReconnectApi as any).hoverToPort?.(c.id, side ?? undefined);
                                 }}
                                 onPortMouseDown={(side, e) => {
                                     e.stopPropagation();
@@ -364,11 +415,10 @@ export default function DiagramCanvas() {
                                     ) {
                                         ctxMenu.close();
                                         state.setSelectedId(c.id);
-                                        state.setSelectedRelationId(null);
+                                        state.setSelectedRelationIds([]); // IMPORTANT: clear relations sans casser les nodes
 
                                         state.setMode("link");
                                         (relApi as any).setActive?.(true);
-                                        // startFromPort est now tolerant (active le mode si besoin)
                                         (relApi as any).startFromPort?.(c.id, side);
                                         return;
                                     }
@@ -383,7 +433,7 @@ export default function DiagramCanvas() {
                                         return;
                                     }
 
-                                    // Reconnect : commit au clic (utile si tu veux cliquer explicitement)
+                                    // Reconnect : commit au clic
                                     if (relReconnectApi.isActive) {
                                         undoApi.pushSnapshot();
                                         (relReconnectApi as any).commitToPort?.(c.id, side);
@@ -397,28 +447,28 @@ export default function DiagramCanvas() {
                                     if ((relApi as any).mode) relApi.clearHover();
                                     if (relReconnectApi.isActive) relReconnectApi.clearHover();
                                 }}
-                                onMouseDown={e => input.onNodeMouseDown(c.id, e)}
+                                onMouseDown={(e) => input.onNodeMouseDown(c.id, e)}
                                 onResizeStart={(handle, e) => input.onResizeStart(c.id, handle, e)}
-                                onSelect={e => input.onNodeSelectOnly(c.id, e)}
+                                onSelect={(e) => input.onNodeSelectOnly(c.id, e)}
                                 onDoubleClickName={() => {
                                     if (state.mode === "link") return;
                                     if (relReconnectApi.isActive) return;
                                     state.setSelectedId(c.id);
-                                    state.setSelectedRelationId(null);
+                                    state.setSelectedRelationIds([]);
                                     requestAnimationFrame(() => editApi.startEditName());
                                 }}
-                                onDoubleClickAttribute={i => {
+                                onDoubleClickAttribute={(i) => {
                                     if (state.mode === "link") return;
                                     if (relReconnectApi.isActive) return;
                                     state.setSelectedId(c.id);
-                                    state.setSelectedRelationId(null);
+                                    state.setSelectedRelationIds([]);
                                     requestAnimationFrame(() => editApi.startEditAttribute(i));
                                 }}
-                                onDoubleClickMethod={i => {
+                                onDoubleClickMethod={(i) => {
                                     if (state.mode === "link") return;
                                     if (relReconnectApi.isActive) return;
                                     state.setSelectedId(c.id);
-                                    state.setSelectedRelationId(null);
+                                    state.setSelectedRelationIds([]);
                                     requestAnimationFrame(() => editApi.startEditMethod(i));
                                 }}
                                 onContextMenu={(e) => {
@@ -434,7 +484,7 @@ export default function DiagramCanvas() {
                                     const world = screenToWorld(sx, sy, cameraApi.camera);
 
                                     state.setSelectedId(c.id);
-                                    state.setSelectedRelationId(null);
+                                    state.setSelectedRelationIds([]);
 
                                     ctxMenu.show(
                                         { x: e.clientX, y: e.clientY },
@@ -474,21 +524,24 @@ export default function DiagramCanvas() {
 
                                 editApi.commitLineEdit();
 
-                                // resize auto sur "nouveau contenu" (on reconstruit nextClass avec les buffers)
                                 const nextClass = {
                                     ...c,
                                     name: editApi.editingName ? editApi.nameBuffer : c.name,
                                     attributes:
                                         editApi.editingAttrIndex !== null
-                                            ? c.attributes.map((a, i) => (i === editApi.editingAttrIndex ? editApi.editBuffer : a))
+                                            ? c.attributes.map((a, i) =>
+                                                i === editApi.editingAttrIndex ? editApi.editBuffer : a
+                                            )
                                             : c.attributes,
                                     methods:
                                         editApi.editingMethodIndex !== null
-                                            ? c.methods.map((m, i) => (i === editApi.editingMethodIndex ? editApi.editBuffer : m))
+                                            ? c.methods.map((m, i) =>
+                                                i === editApi.editingMethodIndex ? editApi.editBuffer : m
+                                            )
                                             : c.methods,
                                 };
 
-                                state.setViewsById(prev => {
+                                state.setViewsById((prev) => {
                                     const patch = applyAutoSizeIfNeeded({
                                         view: prev[c.id],
                                         nextClass,
@@ -509,7 +562,7 @@ export default function DiagramCanvas() {
 
                                 const nextClass = { ...c, name: nextName };
 
-                                state.setViewsById(prev => {
+                                state.setViewsById((prev) => {
                                     const patch = applyAutoSizeIfNeeded({
                                         view: prev[c.id],
                                         nextClass,
@@ -538,6 +591,8 @@ export default function DiagramCanvas() {
             >
                 <Inspector
                     selectedClass={state.selectedClass}
+                    selectedClasses={selectedClasses}
+                    selectedRelations={selectedRelations}
                     selectedRelation={selectedRelation}
                     getClassNameById={getClassNameById}
                     actions={{
@@ -550,13 +605,7 @@ export default function DiagramCanvas() {
                 />
             </div>
 
-            <ContextMenu
-                open={ctxMenu.open}
-                x={ctxMenu.x}
-                y={ctxMenu.y}
-                items={ctxMenu.items}
-                onClose={ctxMenu.close}
-            />
+            <ContextMenu open={ctxMenu.open} x={ctxMenu.x} y={ctxMenu.y} items={ctxMenu.items} onClose={ctxMenu.close} />
         </div>
     );
 }

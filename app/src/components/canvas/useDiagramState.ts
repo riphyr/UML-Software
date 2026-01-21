@@ -1,4 +1,4 @@
-import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 
 import type { UmlClass } from "../../model/uml";
 import type { ViewsById } from "../../model/views";
@@ -19,11 +19,24 @@ export type DiagramStateApi = {
     relations: UmlRelation[];
     setRelations: Dispatch<SetStateAction<UmlRelation[]>>;
 
-    selectedId: string | null;
-    setSelectedId: Dispatch<SetStateAction<string | null>>;
+    // --- Selection (multi)
+    selectedIds: string[]; // classes
+    setSelectedIds: Dispatch<SetStateAction<string[]>>;
 
+    selectedRelationIds: string[];
+    setSelectedRelationIds: Dispatch<SetStateAction<string[]>>;
+
+    multiSelectArmed: boolean;
+    setMultiSelectArmed: Dispatch<SetStateAction<boolean>>;
+
+    // "primary" selection (compat)
+    selectedId: string | null;
     selectedRelationId: string | null;
-    setSelectedRelationId: Dispatch<SetStateAction<string | null>>;
+
+    // helpers (single-select)
+    setSelectedId: (id: string | null) => void;
+    setSelectedRelationId: (id: string | null) => void;
+    clearSelection: () => void;
 
     mode: EditorMode;
     setMode: Dispatch<SetStateAction<EditorMode>>;
@@ -51,14 +64,58 @@ export function useDiagramState(): DiagramStateApi {
 
     const [relations, setRelations] = useState<UmlRelation[]>([]);
 
-    const [selectedId, setSelectedId] = useState<string | null>(null);
-    const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
+    // multi selection
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [selectedRelationIds, setSelectedRelationIds] = useState<string[]>([]);
+
+    const [multiSelectArmed, setMultiSelectArmed] = useState(false);
+
+    const selectedId = selectedIds.length > 0 ? selectedIds[0] : null;
+    const selectedRelationId = selectedRelationIds.length > 0 ? selectedRelationIds[0] : null;
+
+    function setSelectedIdSingle(id: string | null) {
+        setSelectedIds(id ? [id] : []);
+        setSelectedRelationIds([]);
+    }
+
+    function setSelectedRelationIdSingle(id: string | null) {
+        // IMPORTANT: clearing relation selection must NOT clear node selection.
+        // Calling setSelectedRelationId(null) is common after selecting a node,
+        // and clearing nodes here makes nodes "unselectable".
+        if (id === null) {
+            setSelectedRelationIds([]);
+            return;
+        }
+        setSelectedRelationIds([id]);
+        setSelectedIds([]);
+    }
+
+    function clearSelection() {
+        setSelectedIds([]);
+        setSelectedRelationIds([]);
+    }
 
     const [mode, setMode] = useState<EditorMode>("select");
     const [grid, setGrid] = useState<GridState>({ enabled: true, size: 50 });
 
+    useEffect(() => {
+        const total = selectedIds.length + selectedRelationIds.length;
+
+        // auto: select -> multiSelect
+        if (mode === "select" && total >= 2) {
+            setMultiSelectArmed(false);      // IMPORTANT: auto, pas manuel
+            setMode("multiSelect");
+            return;
+        }
+
+        // auto: multiSelect -> select (seulement si pas manuel)
+        if (mode === "multiSelect" && !multiSelectArmed && total <= 1) {
+            setMode("select");
+        }
+    }, [mode, multiSelectArmed, selectedIds.length, selectedRelationIds.length]);
+
     const selectedClass = useMemo(
-        () => (selectedId ? classes.find(c => c.id === selectedId) ?? null : null),
+        () => (selectedId ? classes.find((c) => c.id === selectedId) ?? null : null),
         [classes, selectedId]
     );
 
@@ -74,10 +131,20 @@ export function useDiagramState(): DiagramStateApi {
         setViewsById,
         relations,
         setRelations,
+
+        selectedIds,
+        setSelectedIds,
+        selectedRelationIds,
+        setSelectedRelationIds,
+        multiSelectArmed,
+        setMultiSelectArmed,
+
         selectedId,
-        setSelectedId,
         selectedRelationId,
-        setSelectedRelationId,
+        setSelectedId: setSelectedIdSingle,
+        setSelectedRelationId: setSelectedRelationIdSingle,
+        clearSelection,
+
         mode,
         setMode,
         grid,

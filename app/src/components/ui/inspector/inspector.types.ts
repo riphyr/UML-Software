@@ -15,5 +15,9 @@ export type InspectorActions = {
 export type InspectorProps = {
     selectedClass: UmlClass | null;
     selectedRelation: UmlRelation | null;
+
+    // multi selection (for MultiPanel)
+    selectedClasses: UmlClass[];
+    selectedRelations: UmlRelation[];
     actions: InspectorActions;
 };

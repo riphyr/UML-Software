@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 
 import type { DiagramSnapshotV2 } from "../../model/diagram";
 import type { UmlRelation } from "../../model/relation";
@@ -27,6 +27,9 @@ type NodeManipApi = {
     onMouseMove: (e: any) => boolean;
     stop: () => void;
     consumeDidChange: () => boolean;
+
+    // ajouté (useNodeManipulation l’implémente déjà chez toi)
+    consumeLastDragDelta: () => { dx: number; dy: number } | null;
 };
 
 type RelCreationApi = {
@@ -119,7 +122,7 @@ export function useDiagramInput(args: {
     };
 }) {
     const {
-        svgRef,
+        svgRef: _svgRef,
         focusRoot,
         getLocalScreenPointFromMouseEvent,
         state,
@@ -137,10 +140,57 @@ export function useDiagramInput(args: {
 
     const manipStartSnapshotRef = useRef<DiagramSnapshotV2 | null>(null);
 
+    const [boxRect, setBoxRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
+    const boxRef = useRef<{
+        active: boolean;
+        additive: boolean;
+        start: { x: number; y: number };
+    } | null>(null);
+
     useEffect(() => {
         if (state.mode === "link") relApi.setActive(true);
         else relApi.setActive(false);
     }, [state.mode, relApi]);
+
+    function selectNode(id: string, additive: boolean) {
+        if (!additive) {
+            state.setSelectedIds([id]);
+            state.setSelectedRelationIds([]);
+            return;
+        }
+
+        state.setSelectedIds((prev: string[]) => {
+            const has = prev.includes(id);
+            if (has) return prev.filter((x) => x !== id);
+            return [id, ...prev];
+        });
+    }
+
+    function bboxOfPolyline(points: { x: number; y: number }[]) {
+        let minX = Infinity,
+            minY = Infinity,
+            maxX = -Infinity,
+            maxY = -Infinity;
+        for (const p of points) {
+            if (p.x < minX) minX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y > maxY) maxY = p.y;
+        }
+        return { minX, minY, maxX, maxY };
+    }
+
+    function rectIntersects(
+        a: { minX: number; minY: number; maxX: number; maxY: number },
+        b: { minX: number; minY: number; maxX: number; maxY: number }
+    ) {
+        return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
+    }
+
+    function centerOfView(v: { x: number; y: number; width: number; height: number }) {
+        return { x: v.x + v.width / 2, y: v.y + v.height / 2 };
+    }
 
     function onBackgroundMouseDown(e: MouseEvent<SVGRectElement>) {
         if (e.button !== 0) return;
@@ -174,18 +224,36 @@ export function useDiagramInput(args: {
             const { sx, sy } = getLocalScreenPointFromMouseEvent(e);
             const world = screenToWorld(sx, sy, cameraApi.camera);
 
-            undoApi.pushSnapshot();
             actions.createClassAt(world.x, world.y);
-
             state.setMode("select");
+            return;
+        }
+
+        if (state.mode === "multiSelect") {
+            editApi.commitLineEdit();
+            editApi.commitNameEdit();
+
+            cameraApi.allowPan(false);
+
+            const { sx, sy } = getLocalScreenPointFromMouseEvent(e);
+            const start = screenToWorld(sx, sy, cameraApi.camera);
+
+            const additive = !!(e as any).shiftKey;
+
+            boxRef.current = { active: true, additive, start: { x: start.x, y: start.y } };
+            setBoxRect({ x: start.x, y: start.y, w: 0, h: 0 });
+
+            if (!additive) {
+                state.setSelectedRelationIds([]);
+            }
+
             return;
         }
 
         editApi.commitLineEdit();
         editApi.commitNameEdit();
 
-        state.setSelectedId(null);
-        state.setSelectedRelationId(null);
+        state.clearSelection();
 
         cameraApi.allowPan(true);
         cameraApi.beginPan(e);
@@ -195,18 +263,14 @@ export function useDiagramInput(args: {
         e.preventDefault();
         focusRoot();
 
-        state.setSelectedId(null);
-        state.setSelectedRelationId(null);
+        state.clearSelection();
 
         cameraApi.allowPan(false);
 
         const { sx, sy } = getLocalScreenPointFromMouseEvent(e);
         const world = screenToWorld(sx, sy, cameraApi.camera);
 
-        ctxMenu.show(
-            { x: e.clientX, y: e.clientY },
-            { kind: "background", worldX: world.x, worldY: world.y }
-        );
+        ctxMenu.show({ x: e.clientX, y: e.clientY }, { kind: "background", worldX: world.x, worldY: world.y });
     }
 
     function handleNodeClickForRelationMode(id: string, e: any) {
@@ -214,8 +278,7 @@ export function useDiagramInput(args: {
         focusRoot();
         cameraApi.allowPan(false);
 
-        state.setSelectedId(id);
-        state.setSelectedRelationId(null);
+        selectNode(id, !!e.shiftKey);
 
         if (!relApi.hasFrom) {
             relApi.startFrom(id);
@@ -249,11 +312,22 @@ export function useDiagramInput(args: {
 
         e.stopPropagation();
         focusRoot();
-
         cameraApi.allowPan(false);
 
-        state.setSelectedId(id);
-        state.setSelectedRelationId(null);
+        const additive = !!e.shiftKey;
+
+        if (additive) {
+            selectNode(id, true);
+        } else {
+            const alreadySelected = state.selectedIds.includes(id);
+            const isMulti = state.selectedIds.length > 1;
+
+            if (!alreadySelected || !isMulti) {
+                selectNode(id, false);
+            }
+        }
+
+        state.setSelectedRelationIds([]);
 
         manipStartSnapshotRef.current = makeSnapshot();
         nodeManip.startDrag(id, e);
@@ -286,8 +360,8 @@ export function useDiagramInput(args: {
 
         cameraApi.allowPan(false);
 
-        state.setSelectedId(id);
-        state.setSelectedRelationId(null);
+        selectNode(id, !!e.shiftKey);
+        state.setSelectedRelationIds([]);
     }
 
     function onResizeStart(id: string, handle: ResizeHandle, e: any) {
@@ -302,104 +376,147 @@ export function useDiagramInput(args: {
         cameraApi.allowPan(false);
 
         state.setSelectedId(id);
-        state.setSelectedRelationId(null);
+        state.setSelectedRelationIds([]);
 
         manipStartSnapshotRef.current = makeSnapshot();
         const cur = state.viewsById[id];
-        const mode = (cur?.sizeMode ?? "auto");
+        const mode = cur?.sizeMode ?? "auto";
         if (mode === "auto") {
-            state.setViewsById(prev => updateView(prev, id, { sizeMode: "locked" }));
+            state.setViewsById((prev) => updateView(prev, id, { sizeMode: "locked" }));
         }
         nodeManip.startResize(id, handle, e);
     }
 
     function onMouseMove(e: any) {
-        if (ctxMenu.open) return;
+        if (boxRef.current?.active) {
+            const { sx, sy } = getLocalScreenPointFromMouseEvent(e);
+            const cur = screenToWorld(sx, sy, cameraApi.camera);
+            const s = boxRef.current.start;
 
-        if (svgRef.current) {
-            const rect = svgRef.current.getBoundingClientRect();
-            const sx = (e as any).clientX - rect.left;
-            const sy = (e as any).clientY - rect.top;
-            const w = screenToWorld(sx, sy, cameraApi.camera);
+            const x1 = Math.min(s.x, cur.x);
+            const y1 = Math.min(s.y, cur.y);
+            const x2 = Math.max(s.x, cur.x);
+            const y2 = Math.max(s.y, cur.y);
 
-            if (relRoutingApi?.isActive) {
-                relRoutingApi.updateToWorld(w.x, w.y);
-                return;
-            }
-
-            if (relReconnectApi.isActive) {
-                relReconnectApi.updateToWorld(w.x, w.y);
-            } else if (relApi.mode && relApi.hasFrom) {
-                relApi.updateToWorld(w.x, w.y);
-            }
+            setBoxRect({ x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
+            return;
         }
 
-        if (!relReconnectApi.isActive && !relRoutingApi?.isActive) {
-            const usedByNode = nodeManip.onMouseMove(e);
+        const usedByNode = nodeManip.onMouseMove(e);
 
-            // IMPORTANT : reroute en TEMPS REEL quand une node bouge/resize
-            // => on casse tous les controlPoints des relations connectées (même si elles étaient manuelles)
-            if (usedByNode && state.selectedId) {
-                const movedId = state.selectedId;
-                state.setRelations(prev =>
-                    prev.map(r =>
-                        (r.fromId === movedId || r.toId === movedId)
-                            ? { ...r, controlPoints: undefined }
-                            : r
-                    )
-                );
-                return;
+        if (usedByNode) {
+            const didChange = nodeManip.consumeDidChange();
+            if (didChange && manipStartSnapshotRef.current) {
+                undoApi.pushSnapshot(manipStartSnapshotRef.current);
+                manipStartSnapshotRef.current = null;
             }
 
-            if (usedByNode) return;
+            const d = nodeManip.consumeLastDragDelta?.();
+            if (d && state.selectedRelationIds.length > 0) {
+                const ids = new Set(state.selectedRelationIds);
+                state.setRelations((prev) =>
+                    prev.map((r) => {
+                        if (!ids.has(r.id)) return r;
+                        if (!r.controlPoints || r.controlPoints.length === 0) return r;
+                        return { ...r, controlPoints: r.controlPoints.map((p) => ({ x: p.x + d.dx, y: p.y + d.dy })) };
+                    })
+                );
+            }
+
+            if (state.selectedIds.length === 1 && state.selectedRelationIds.length === 0 && state.selectedId) {
+                const movedId = state.selectedId;
+                state.setRelations((prev) =>
+                    prev.map((r) => (r.fromId === movedId || r.toId === movedId ? { ...r, controlPoints: undefined } : r))
+                );
+            }
+
+            return;
         }
 
         if (!relRoutingApi?.isActive) cameraApi.panMove(e);
     }
 
     function onMouseUp() {
+        if (boxRef.current?.active && boxRect) {
+            const additive = boxRef.current.additive;
+
+            const x1 = boxRect.x;
+            const y1 = boxRect.y;
+            const x2 = boxRect.x + boxRect.w;
+            const y2 = boxRect.y + boxRect.h;
+
+            const rect = { minX: x1, minY: y1, maxX: x2, maxY: y2 };
+
+            const hitNodeIds: string[] = [];
+            for (const id of Object.keys(state.viewsById)) {
+                const v = state.viewsById[id];
+                const bb = { minX: v.x, minY: v.y, maxX: v.x + v.width, maxY: v.y + v.height };
+                if (rectIntersects(rect, bb)) hitNodeIds.push(id);
+            }
+
+            const hitRelationIds: string[] = [];
+            for (const r of state.relations) {
+                const fromV = state.viewsById[r.fromId];
+                const toV = state.viewsById[r.toId];
+                if (!fromV || !toV) continue;
+
+                const a = centerOfView(fromV);
+                const b = centerOfView(toV);
+
+                const pts = [a, ...(r.controlPoints ?? []), b];
+                const bb = bboxOfPolyline(pts);
+
+                if (rectIntersects(rect, bb)) hitRelationIds.push(r.id);
+            }
+
+            if (!additive) {
+                state.setSelectedIds(hitNodeIds);
+                state.setSelectedRelationIds(hitRelationIds);
+
+                if (state.multiSelectArmed) {
+                    const total = hitNodeIds.length + hitRelationIds.length;
+                    if (total <= 1) {
+                        state.setMode("select");
+                        state.setMultiSelectArmed(false);
+                    }
+                }
+            } else {
+                const nextNodes = Array.from(new Set([...state.selectedIds, ...hitNodeIds]));
+                const nextRels = Array.from(new Set([...state.selectedRelationIds, ...hitRelationIds]));
+
+                state.setSelectedIds(nextNodes);
+                state.setSelectedRelationIds(nextRels);
+
+                if (state.multiSelectArmed) {
+                    const total = nextNodes.length + nextRels.length;
+                    if (total <= 1) {
+                        state.setMode("select");
+                        state.setMultiSelectArmed(false);
+                    }
+                }
+            }
+
+            boxRef.current = null;
+            setBoxRect(null);
+            return;
+        }
+
         cameraApi.endPan();
 
         if (relRoutingApi?.isActive) {
-            undoApi.pushSnapshot();
             relRoutingApi.commit();
-            nodeManip.stop();
-            manipStartSnapshotRef.current = null;
             return;
         }
 
         if (relReconnectApi.isActive) {
-            // IMPORTANT : commit au RELEASE, et si hover contient un port -> commitToPort
-            const hoverObj = relReconnectApi.hover ?? null;
-            const hoverId =
-                hoverObj?.id ??
-                relReconnectApi.hoverToId ??
-                null;
-
-            if (hoverId) {
-                undoApi.pushSnapshot();
-
-                const hoverPort = hoverObj?.port ?? undefined;
-                if (hoverPort && relReconnectApi.commitToPort) {
-                    relReconnectApi.commitToPort(hoverId, hoverPort);
-                } else if (relReconnectApi.commitTo) {
-                    relReconnectApi.commitTo(hoverId);
-                } else {
-                    relReconnectApi.cancel();
-                }
-            } else {
-                relReconnectApi.cancel();
-            }
-
-            nodeManip.stop();
-            manipStartSnapshotRef.current = null;
+            relReconnectApi.cancel();
             return;
         }
 
-        const changed = nodeManip.consumeDidChange();
+        const didChange = nodeManip.consumeDidChange();
         nodeManip.stop();
 
-        if (changed && manipStartSnapshotRef.current) {
+        if (didChange && manipStartSnapshotRef.current) {
             undoApi.pushSnapshot(manipStartSnapshotRef.current);
         }
         manipStartSnapshotRef.current = null;
@@ -408,12 +525,7 @@ export function useDiagramInput(args: {
     function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
         const t = e.target as HTMLElement | null;
 
-        if (
-            t &&
-            (t.tagName === "INPUT" ||
-                t.tagName === "TEXTAREA" ||
-                t.isContentEditable)
-        ) {
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
             return;
         }
 
@@ -452,14 +564,32 @@ export function useDiagramInput(args: {
         if (!editApi.editingName && !editApi.isEditingLine) {
             const k = e.key.toLowerCase();
 
-            if (k === "v") { e.preventDefault(); state.setMode("select"); return; }
-            if (k === "h") { e.preventDefault(); state.setMode("pan"); return; }
-            if (k === "l") { e.preventDefault(); state.setMode("link"); return; }
-            if (k === "c") { e.preventDefault(); state.setMode("addClass"); return; }
+            if (k === "v") {
+                e.preventDefault();
+                state.setMode("select");
+                state.setMultiSelectArmed(false);
+                return;
+            }
+            if (k === "m") {
+                e.preventDefault();
+                state.setMode("multiSelect");
+                state.setMultiSelectArmed(true);
+                return;
+            }
+            if (k === "l") {
+                e.preventDefault();
+                state.setMode("link");
+                return;
+            }
+            if (k === "c") {
+                e.preventDefault();
+                state.setMode("addClass");
+                return;
+            }
 
             if (k === "g") {
                 e.preventDefault();
-                state.setGrid(g => ({ ...g, enabled: !g.enabled }));
+                state.setGrid((g) => ({ ...g, enabled: !g.enabled }));
                 return;
             }
         }
@@ -523,5 +653,6 @@ export function useDiagramInput(args: {
         onMouseMove,
         onMouseUp,
         onKeyDown,
+        boxRect,
     };
 }
