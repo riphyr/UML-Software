@@ -1,6 +1,7 @@
 import type { UmlClass } from "../../model/uml";
 import type { NodeView } from "../../model/view";
 import type { UmlRelation } from "../../model/relation";
+import { makeControlPointsWithCount } from "../relations/routingUtils";
 
 import type { ContextAction } from "../contextmenu/types";
 
@@ -431,6 +432,29 @@ export function useDiagramActions(args: {
         setRelations(relations.map((r) => (r.id === selectedRelationId ? { ...r, label } : r)));
     }
 
+    function setRelationWaypointCountOnSelected(count: number) {
+        if (!selectedRelationId) return;
+
+        const r0 = relations.find((r) => r.id === selectedRelationId);
+        if (!r0) return;
+
+        const MIN_WP = 2;
+        const MAX_WP = 10;
+
+        const n = Math.max(MIN_WP, Math.min(MAX_WP, Math.floor(count)));
+
+        undo.pushSnapshot();
+
+        const cps = makeControlPointsWithCount(r0, viewsById, n);
+
+        setRelations((prev: UmlRelation[]) =>
+            prev.map((r) => {
+                if (r.id !== r0.id) return r;
+                return { ...r, controlPoints: cps };
+            })
+        );
+    }
+
     function duplicateSelected() {
         if (!selectedId) return;
 
@@ -462,6 +486,7 @@ export function useDiagramActions(args: {
 
         setRelationKindOnSelected,
         setRelationLabelOnSelected,
+        setRelationWaypointCountOnSelected,
 
         editSelectedRelationLabel,
         applySnapshot,

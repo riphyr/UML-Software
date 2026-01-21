@@ -599,6 +599,7 @@ export default function DiagramCanvas() {
                         applyClassEdits: actions.applyClassEdits,
                         setRelationKindOnSelected: actions.setRelationKindOnSelected,
                         setRelationLabelOnSelected: actions.setRelationLabelOnSelected,
+                        setRelationWaypointCountOnSelected: actions.setRelationWaypointCountOnSelected,
                         deleteSelected: actions.deleteSelected,
                         duplicateSelected: actions.duplicateSelected,
                     }}

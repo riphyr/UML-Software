@@ -69,6 +69,26 @@ function chooseSide(from: NodeView, toPoint: RelationPoint): Side {
     return dy >= 0 ? "S" : "N";
 }
 
+function enforceEndpointPerpendicular(
+    a: RelationPoint,
+    aSide: Side,
+    b: RelationPoint,
+    bSide: Side,
+    inner: RelationPoint[]
+): RelationPoint[] {
+    if (inner.length === 0) return inner;
+    const out = inner.map((p) => ({ ...p }));
+
+    if (aSide === "N" || aSide === "S") out[0].x = a.x;
+    else out[0].y = a.y;
+
+    const last = out.length - 1;
+    if (bSide === "N" || bSide === "S") out[last].x = b.x;
+    else out[last].y = b.y;
+
+    return out;
+}
+
 function portPoint(v: NodeView, side: Side, offset = PORT_OFFSET): RelationPoint {
     const m = sideMidpoint(v, side);
     const n = sideNormal(side);
@@ -128,10 +148,11 @@ function buildPathPoints(
     const a = portPoint(from, fromSide);
     const b = portPoint(to, toSide);
 
-    const controls: RelationPoint[] =
-        r.controlPoints && r.controlPoints.length > 0
-            ? r.controlPoints
-            : autoOrthoRoute(a, fromSide, b, toSide, 24);
+    const hasUser = !!(r.controlPoints && r.controlPoints.length > 0);
+
+    const controls: RelationPoint[] = hasUser
+        ? enforceEndpointPerpendicular(a, fromSide, b, toSide, r.controlPoints!)
+        : autoOrthoRoute(a, fromSide, b, toSide, 24);
 
     const points: RelationPoint[] = [a, ...controls, b];
     return { a, b, points, fromSide, toSide };
@@ -166,7 +187,7 @@ export default function RelationLayer(p: Props) {
     const dragKey = useMemo(() => {
         if (!routing?.isActive || !routing.relationId || !getControls) return "";
 
-        const r = relations.find(rr => rr.id === routing.relationId);
+        const r = relations.find((rr) => rr.id === routing.relationId);
         if (!r) return "";
 
         const pts = getControls(r);
@@ -189,7 +210,7 @@ export default function RelationLayer(p: Props) {
                 const built = buildPathPoints(r, viewsById);
                 if (!built) return null;
 
-                let { a, b, points } = built;
+                let { a, b, points, fromSide, toSide } = built;
 
                 // IMPORTANT: pendant un drag waypoint, le path doit utiliser les points effectifs (draft inclus)
                 if (routing?.isActive && routing.relationId === r.id && getControls) {
@@ -204,17 +225,19 @@ export default function RelationLayer(p: Props) {
                 const midIdx = Math.floor(points.length / 2);
                 const m = points[midIdx] ?? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 
-                return { r, a, b, points, m, d: pointsToPath(points) };
+                return { r, a, b, points, fromSide, toSide, m, d: pointsToPath(points) };
             })
             .filter(Boolean) as {
             r: UmlRelation;
             a: RelationPoint;
             b: RelationPoint;
             points: RelationPoint[];
+            fromSide: Side;
+            toSide: Side;
             m: RelationPoint;
             d: string;
         }[];
-    }, [relations, viewsById, dragKey]);
+    }, [relations, viewsById, dragKey, routing?.isActive, routing?.relationId, getControls]);
 
     return (
         <g>
@@ -236,22 +259,31 @@ export default function RelationLayer(p: Props) {
                 </marker>
             </defs>
 
-            {paths.map(({ r, a, b, d, m }) => {
-                const selected = selectedRelationIds
-                    ? selectedRelationIds.includes(r.id)
-                    : r.id === selectedRelationId;
+            {paths.map(({ r, a, b, d, m, fromSide, toSide }) => {
+                const selected = selectedRelationIds ? selectedRelationIds.includes(r.id) : r.id === selectedRelationId;
                 const stroke = selected ? "#6aa9ff" : "#cfd6e6";
                 const sw = selected ? 2.5 : 1.5;
 
                 const HANDLE_R = 4;
                 const HANDLE_HIT_R = 10;
 
+                const RECONNECT_R = 9;
+
                 // Waypoints
-                const cps: RelationPoint[] = (getControls ? getControls(r) : null) ?? r.controlPoints ?? [];
+                const hasExplicit = !!(r.controlPoints && r.controlPoints.length > 0);
+
+                // visibles:
+                // - pendant un drag (routing actif) => points effectifs (inclut auto)
+                // - sinon uniquement si l'utilisateur a explicitement créé des controlPoints
+                const cps: RelationPoint[] =
+                    routing?.isActive && routing.relationId === r.id && getControls
+                        ? getControls(r)
+                        : hasExplicit
+                            ? [a, ...enforceEndpointPerpendicular(a, fromSide, b, toSide, r.controlPoints!), b]
+                            : [];
+
                 const showWaypoints = selected && cps.length > 0;
                 const endpointsAreWaypoints = !!routing && showWaypoints && cps.length >= 2;
-
-                const RECONNECT_R = 9;
 
                 return (
                     <g key={r.id}>
@@ -262,7 +294,7 @@ export default function RelationLayer(p: Props) {
                             strokeWidth={12}
                             onMouseDown={(e) => {
                                 e.stopPropagation();
-                                onSelectRelation(r.id, e)
+                                onSelectRelation(r.id, e);
                             }}
                             onContextMenu={(e) => {
                                 e.preventDefault();
@@ -302,13 +334,15 @@ export default function RelationLayer(p: Props) {
                                                 onMouseDown={(e) => {
                                                     if (!routing) return;
                                                     e.stopPropagation();
-                                                    onSelectRelation(r.id, e)
+                                                    onSelectRelation(r.id, e);
 
                                                     // endpoints (idx 0 / last) : drag => relocalisation manuelle d'ancre
                                                     // (useRelationRouting commit() fera le snap sur un port)
                                                     routing.start(r.id, idx);
                                                 }}
-                                                style={{ cursor: routing ? (nearFrom || nearTo ? "move" : "grab") : "default" }}
+                                                style={{
+                                                    cursor: routing ? (nearFrom || nearTo ? "move" : "grab") : "default",
+                                                }}
                                             />
                                             <circle cx={pt.x} cy={pt.y} r={rad} fill={stroke} pointerEvents="none" />
                                         </g>
@@ -326,7 +360,7 @@ export default function RelationLayer(p: Props) {
                                     fill="transparent"
                                     onMouseDown={(e) => {
                                         e.stopPropagation();
-                                        onSelectRelation(r.id, e)
+                                        onSelectRelation(r.id, e);
                                         onStartReconnect({ id: r.id, end: "from" });
                                     }}
                                     style={{ cursor: "crosshair" }}
@@ -340,7 +374,7 @@ export default function RelationLayer(p: Props) {
                                     fill="transparent"
                                     onMouseDown={(e) => {
                                         e.stopPropagation();
-                                        onSelectRelation(r.id, e)
+                                        onSelectRelation(r.id, e);
                                         onStartReconnect({ id: r.id, end: "to" });
                                     }}
                                     style={{ cursor: "crosshair" }}

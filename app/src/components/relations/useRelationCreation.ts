@@ -2,6 +2,9 @@ import { useMemo, useState } from "react";
 import type { PortSide, RelationKind, UmlRelation } from "../../model/relation";
 import type { ViewsById } from "../../model/views";
 import type { NodeView } from "../../model/view";
+import { makeControlPointsWithCount } from "./routingUtils";
+
+const DEFAULT_INTERNAL_WAYPOINTS = 2;
 
 type Side = PortSide;
 
@@ -86,7 +89,6 @@ export function useRelationCreation(p: {
     }
 
     function startFrom(id: string) {
-        // allow imperative start even if mode just got enabled this tick
         if (disabled) return;
         if (!mode) setMode(true);
         if (!viewsById[id]) return;
@@ -95,7 +97,6 @@ export function useRelationCreation(p: {
     }
 
     function startFromPort(id: string, port: Side) {
-        // allow imperative start even if mode just got enabled this tick
         if (disabled) return;
         if (!mode) setMode(true);
         if (!viewsById[id]) return;
@@ -108,15 +109,14 @@ export function useRelationCreation(p: {
         setPreview({ ...preview, toWorld: { x, y } });
     }
 
-    // IMPORTANT: ne pas écraser un hover port actif
     function hoverTo(id: string | null) {
         if (!mode || !preview) return;
         if (id && !viewsById[id]) return;
         if (id === preview.fromId) id = null;
 
-        setHover(prev => {
+        setHover((prev) => {
             if (!id) return null;
-            if (prev && prev.id === id && prev.port) return prev; // garde le port si déjà set
+            if (prev && prev.id === id && prev.port) return prev;
             return { id };
         });
     }
@@ -159,20 +159,25 @@ export function useRelationCreation(p: {
 
         const id = `rel-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-        const r: UmlRelation = {
+        const base: UmlRelation = {
             id,
             fromId: preview.fromId,
             toId,
             kind,
             label: "",
-            // IMPORTANT: ne verrouille le port que si l'utilisateur a choisi un +
             fromPort: preview.fromPort ? fromSide : undefined,
             toPort: toPort ? toSide : undefined,
             fromPortLocked: !!preview.fromPort,
             toPortLocked: !!toPort,
+            routingMode: "manual",
         };
 
-        setRelations(prev => [...prev, r]);
+        const withDefault: UmlRelation = {
+            ...base,
+            controlPoints: makeControlPointsWithCount(base, viewsById, DEFAULT_INTERNAL_WAYPOINTS),
+        };
+
+        setRelations((prev) => [...prev, withDefault]);
         setPreview(null);
         setHover(null);
     }
@@ -192,7 +197,7 @@ export function useRelationCreation(p: {
 
         const id = `rel-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-        const r: UmlRelation = {
+        const base: UmlRelation = {
             id,
             fromId: preview.fromId,
             toId,
@@ -202,9 +207,15 @@ export function useRelationCreation(p: {
             toPort: toSide,
             fromPortLocked: !!preview.fromPort,
             toPortLocked: true,
+            routingMode: "manual",
         };
 
-        setRelations(prev => [...prev, r]);
+        const withDefault: UmlRelation = {
+            ...base,
+            controlPoints: makeControlPointsWithCount(base, viewsById, DEFAULT_INTERNAL_WAYPOINTS),
+        };
+
+        setRelations((prev) => [...prev, withDefault]);
         setPreview(null);
         setHover(null);
     }

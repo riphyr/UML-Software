@@ -1,5 +1,5 @@
 import type { UmlClass } from "../../../model/uml";
-import type { UmlRelation, RelationKind } from "../../../model/relation";
+import type { RelationKind, UmlRelation } from "../../../model/relation";
 
 export type InspectorActions = {
     // class
@@ -10,6 +10,9 @@ export type InspectorActions = {
     // relation
     setRelationKindOnSelected: (kind: RelationKind) => void;
     setRelationLabelOnSelected: (label: string) => void;
+
+    // NEW: waypoints (controlPoints) count (0 = straight)
+    setRelationWaypointCountOnSelected: (count: number) => void;
 };
 
 export type InspectorProps = {

@@ -1,3 +1,4 @@
+// useDiagramInput.ts
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 
 import type { DiagramSnapshotV2 } from "../../model/diagram";
@@ -388,6 +389,30 @@ export function useDiagramInput(args: {
     }
 
     function onMouseMove(e: any) {
+        // Routing waypoint drag: must receive mousemove to update the draft point.
+        if (relRoutingApi?.isActive) {
+            const { sx, sy } = getLocalScreenPointFromMouseEvent(e);
+            const world = screenToWorld(sx, sy, cameraApi.camera);
+            relRoutingApi.updateToWorld(world.x, world.y);
+            return;
+        }
+
+        // Reconnect drag preview
+        if (relReconnectApi.isActive) {
+            const { sx, sy } = getLocalScreenPointFromMouseEvent(e);
+            const world = screenToWorld(sx, sy, cameraApi.camera);
+            relReconnectApi.updateToWorld(world.x, world.y);
+            return;
+        }
+
+        // Relation creation preview line
+        if (relApi.mode && relApi.hasFrom) {
+            const { sx, sy } = getLocalScreenPointFromMouseEvent(e);
+            const world = screenToWorld(sx, sy, cameraApi.camera);
+            relApi.updateToWorld(world.x, world.y);
+            // continue: on veut garder pan/hover? non.
+        }
+
         if (boxRef.current?.active) {
             const { sx, sy } = getLocalScreenPointFromMouseEvent(e);
             const cur = screenToWorld(sx, sy, cameraApi.camera);
