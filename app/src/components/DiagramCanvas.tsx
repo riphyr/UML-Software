@@ -30,6 +30,8 @@ import { useDiagramState } from "./canvas/useDiagramState";
 import { useDiagramActions } from "./canvas/useDiagramActions";
 import { useDiagramInput } from "./canvas/useDiagramInput";
 
+import { buildPortLayout, getEndpointPortPoint } from "./relations/ports";
+
 export default function DiagramCanvas() {
     const rootRef = useRef<HTMLDivElement | null>(null);
     const svgRef = useRef<SVGSVGElement | null>(null);
@@ -61,14 +63,14 @@ export default function DiagramCanvas() {
         disabled: editApi.editingName || editApi.isEditingLine,
     });
 
-    const relReconnectApi = useRelationReconnect({
+    const relReconnectApi: ReturnType<typeof useRelationReconnect> = useRelationReconnect({
         viewsById: state.viewsById,
         relations: state.relations,
         setRelations: state.setRelations,
         disabled: editApi.editingName || editApi.isEditingLine || state.mode === "link",
     });
 
-    const relRoutingApi = useRelationRouting({
+    const relRoutingApi: ReturnType<typeof useRelationRouting> = useRelationRouting({
         viewsById: state.viewsById,
         relations: state.relations,
         setRelations: state.setRelations,
@@ -87,7 +89,7 @@ export default function DiagramCanvas() {
             editApi.isEditingLine ||
             state.mode === "link" ||
             relReconnectApi.isActive ||
-            relRoutingApi.isActive,
+            relRoutingApi.routing.isActive,
         grid: { enabled: state.grid.enabled, size: state.grid.size },
     });
 
@@ -149,7 +151,18 @@ export default function DiagramCanvas() {
             setActive: (relApi as any).setActive,
         } as any,
         relReconnectApi: relReconnectApi as any,
-        relRoutingApi,
+        relRoutingApi: {
+            isActive: relRoutingApi.routing.isActive,
+            relationId: relRoutingApi.routing.isActive ? relRoutingApi.routing.relationId : undefined,
+
+            updateToWorld: (x: number, y: number) => {
+                if (!relRoutingApi.routing.isActive) return;
+                relRoutingApi.setDraft({ x, y });
+            },
+
+            commit: relRoutingApi.commit,
+            cancel: relRoutingApi.cancel,
+        } as any,
         editApi,
         undoApi,
         ctxMenu,
@@ -220,7 +233,7 @@ export default function DiagramCanvas() {
                         ? "grabbing"
                         : relReconnectApi.isActive
                             ? "crosshair"
-                            : relRoutingApi.isActive
+                            : relRoutingApi.routing.isActive
                                 ? "move"
                                 : state.mode === "link"
                                     ? "crosshair"
@@ -240,6 +253,24 @@ export default function DiagramCanvas() {
                     const sy = e.clientY - rect.top;
                     const w = screenToWorld(sx, sy, cameraApi.camera);
                     setMouseWorld(w);
+                }}
+                onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    // si une relation est déjà sélectionnée, on ouvre son menu
+                    const id = state.selectedRelationId;
+                    if (!id) return;
+
+                    const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+                    const sx = e.clientX - rect.left;
+                    const sy = e.clientY - rect.top;
+                    const world = screenToWorld(sx, sy, cameraApi.camera);
+
+                    ctxMenu.show(
+                        { x: e.clientX, y: e.clientY },
+                        { kind: "relation", id, worldX: world.x, worldY: world.y }
+                    );
                 }}
                 onMouseUp={input.onMouseUp}
                 onMouseLeave={input.onMouseUp}
@@ -290,33 +321,94 @@ export default function DiagramCanvas() {
 
                             state.setSelectedRelationId(id);
                         }}
-                        onStartReconnect={({ id, end }) => {
+                        onStartReconnect={(args: { id: string; end: "from" | "to" }) => {
+                            const { id, end } = args;
+
                             state.setSelectedRelationId(id);
                             state.setSelectedIds([]);
                             ctxMenu.close();
                             relReconnectApi.start(id, end);
                         }}
-                        onContextMenuRelation={({ id, clientX, clientY }) => {
-                            if (!svgRef.current) return;
+                        routing={relRoutingApi.routing.isActive ? relRoutingApi.routing : undefined}
+                        getControls={(id) => {
+                            if (!relRoutingApi.routing.isActive) return undefined;
+                            if (relRoutingApi.routing.relationId !== id) return undefined;
 
-                            const rect = svgRef.current.getBoundingClientRect();
-                            const sx = clientX - rect.left;
-                            const sy = clientY - rect.top;
-                            const world = screenToWorld(sx, sy, cameraApi.camera);
+                            // pendant un drag de waypoint, on renvoie les controlPoints "draft" (inner only)
+                            if (relRoutingApi.routing.kind !== "waypoint") return undefined;
 
-                            state.setSelectedRelationId(id);
-                            state.setSelectedIds([]);
+                            const r0 = state.relations.find((r) => r.id === id);
+                            if (!r0) return undefined;
 
-                            ctxMenu.show(
-                                { x: clientX, y: clientY },
-                                { kind: "relation", id, worldX: world.x, worldY: world.y }
-                            );
+                            const cps = [...(r0.controlPoints ?? [])];
+                            const i = relRoutingApi.routing.i;
+                            if (i >= 0 && i < cps.length) cps[i] = relRoutingApi.routing.draft;
+                            return cps;
                         }}
-                        routing={{
-                            isActive: relRoutingApi.isActive,
-                            relationId: relRoutingApi.relationId,
-                            start: relRoutingApi.start,
-                            getEffectiveControlPoints: relRoutingApi.getEffectiveControlPoints,
+                        onStartWaypointDrag={({ relationId, i, e }) => {
+                            e.stopPropagation();
+
+                            const r0 = state.relations.find((r) => r.id === relationId);
+                            const cps = r0?.controlPoints ?? [];
+                            const draft = cps[i];
+                            if (!draft) return;
+
+                            relRoutingApi.startWaypointDrag({ relationId, i, draft });
+                        }}
+                        onStartEndpointDrag={({ relationId, end, e }) => {
+                            e.stopPropagation();
+
+                            // draft initial = endpoint actuel (distribué si possible)
+                            const r0 = state.relations.find((r) => r.id === relationId);
+                            if (!r0) return;
+
+                            const layout = buildPortLayout(state.relations, state.viewsById);
+                            const ep = getEndpointPortPoint(layout, relationId, end, state.viewsById, 14);
+
+                            // fallback si jamais
+                            const fromV = state.viewsById[r0.fromId];
+                            const toV = state.viewsById[r0.toId];
+                            if (!fromV || !toV) return;
+
+                            const cFrom = { x: fromV.x + fromV.width / 2, y: fromV.y + fromV.height / 2 };
+                            const cTo = { x: toV.x + toV.width / 2, y: toV.y + toV.height / 2 };
+
+                            const chooseSide = (from: any, toPoint: any) => {
+                                const c = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+                                const dx = toPoint.x - c.x;
+                                const dy = toPoint.y - c.y;
+                                return Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? "E" : "W") : (dy >= 0 ? "S" : "N");
+                            };
+
+                            const sideMid = (v: any, side: any) => {
+                                const cx = v.x + v.width / 2;
+                                const cy = v.y + v.height / 2;
+                                if (side === "N") return { x: cx, y: v.y };
+                                if (side === "S") return { x: cx, y: v.y + v.height };
+                                if (side === "W") return { x: v.x, y: cy };
+                                return { x: v.x + v.width, y: cy };
+                            };
+                            const nrm = (side: any) => {
+                                if (side === "N") return { x: 0, y: -1 };
+                                if (side === "S") return { x: 0, y: 1 };
+                                if (side === "W") return { x: -1, y: 0 };
+                                return { x: 1, y: 0 };
+                            };
+                            const portPoint = (v: any, side: any, offset = 14) => {
+                                const m = sideMid(v, side);
+                                const n = nrm(side);
+                                return { x: m.x + n.x * offset, y: m.y + n.y * offset };
+                            };
+
+                            const fromSide = r0.fromPortLocked && r0.fromPort ? r0.fromPort : chooseSide(fromV, cTo);
+                            const toSide = r0.toPortLocked && r0.toPort ? r0.toPort : chooseSide(toV, cFrom);
+
+                            const fallbackDraft =
+                                end === "from" ? portPoint(fromV, fromSide) : portPoint(toV, toSide);
+
+                            const draft = ep?.point ?? fallbackDraft;
+
+                            relRoutingApi.startEndpointDrag({ relationId, end, draft });
                         }}
                     />
 
@@ -394,7 +486,7 @@ export default function DiagramCanvas() {
                                 showPorts={
                                     state.mode === "link" ||
                                     relReconnectApi.isActive ||
-                                    relRoutingApi.isActive ||
+                                    relRoutingApi.routing.isActive ||
                                     (state.mode === "select" && !state.selectedRelationId)
                                 }
                                 onPortHover={(side) => {
@@ -411,7 +503,7 @@ export default function DiagramCanvas() {
                                         state.mode === "select" &&
                                         !state.selectedRelationId &&
                                         !relReconnectApi.isActive &&
-                                        !relRoutingApi.isActive
+                                        !relRoutingApi.routing.isActive
                                     ) {
                                         ctxMenu.close();
                                         state.setSelectedId(c.id);

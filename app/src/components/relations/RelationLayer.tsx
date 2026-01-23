@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import type { PortSide, RelationPoint, UmlRelation } from "../../model/relation";
 import type { ViewsById } from "../../model/views";
 import type { NodeView } from "../../model/view";
+import { buildPortLayout, getEndpointPortPoint } from "./ports";
+import { makeControlPointsWithCount } from "./routingUtils";
 
 type Props = {
     relations: UmlRelation[];
@@ -13,36 +15,46 @@ type Props = {
 
     onStartReconnect: (args: { id: string; end: "from" | "to" }) => void;
 
-    // Waypoints (drag)
-    routing?: {
-        isActive: boolean;
-        relationId: string | null;
-        start: (relationId: string, index: number) => void;
-        // if provided, returns the "effective" points currently used for display
-        // (ex: includes auto-route points, or temporary points while dragging)
-        getEffectiveControlPoints?: (r: UmlRelation) => RelationPoint[];
+    routing?:
+        | { isActive: false }
+        | {
+        isActive: true;
+        relationId: string;
+        kind: "waypoint" | "from" | "to";
+        i: number;
+        draft: RelationPoint;
+        basePoints: RelationPoint[];
+        desiredInnerCount: number;
     };
 
-    onContextMenuRelation: (args: { id: string; clientX: number; clientY: number }) => void;
+    getControls?: (id: string) => RelationPoint[] | undefined;
+
+    onStartWaypointDrag?: (args: { relationId: string; i: number; e: React.MouseEvent }) => void;
+    onStartEndpointDrag?: (args: { relationId: string; end: "from" | "to"; e: React.MouseEvent }) => void;
 };
 
 type Side = PortSide;
 
-const PORT_OFFSET = 10;
+const PORT_OFFSET = 14;
+const LABEL_OFFSET = 10;
 
-function markerEnd(kind: UmlRelation["kind"]) {
-    if (kind === "herit") return "url(#uml-arrow-triangle)";
-    return "url(#uml-arrow-open)";
-}
-
-function markerStart(kind: UmlRelation["kind"]) {
-    if (kind === "agg") return "url(#uml-diamond-open)";
-    if (kind === "comp") return "url(#uml-diamond-filled)";
-    return undefined;
-}
+// Hitboxes
+const RELATION_HIT_STROKE = 12;
+const WAYPOINT_HIT_R = 10;
+const WAYPOINT_VIS_R = 5;
+const ENDPOINT_HIT_R = 12;
+const ENDPOINT_VIS_R = 6;
 
 function center(v: NodeView): RelationPoint {
     return { x: v.x + v.width / 2, y: v.y + v.height / 2 };
+}
+
+function chooseSide(from: NodeView, toPoint: RelationPoint): Side {
+    const c = center(from);
+    const dx = toPoint.x - c.x;
+    const dy = toPoint.y - c.y;
+    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? "E" : "W";
+    return dy >= 0 ? "S" : "N";
 }
 
 function sideMidpoint(v: NodeView, side: Side): RelationPoint {
@@ -61,112 +73,15 @@ function sideNormal(side: Side): RelationPoint {
     return { x: 1, y: 0 }; // E
 }
 
-function chooseSide(from: NodeView, toPoint: RelationPoint): Side {
-    const c = center(from);
-    const dx = toPoint.x - c.x;
-    const dy = toPoint.y - c.y;
-    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? "E" : "W";
-    return dy >= 0 ? "S" : "N";
-}
-
-function enforceEndpointPerpendicular(
-    a: RelationPoint,
-    aSide: Side,
-    b: RelationPoint,
-    bSide: Side,
-    inner: RelationPoint[]
-): RelationPoint[] {
-    if (inner.length === 0) return inner;
-    const out = inner.map((p) => ({ ...p }));
-
-    if (aSide === "N" || aSide === "S") out[0].x = a.x;
-    else out[0].y = a.y;
-
-    const last = out.length - 1;
-    if (bSide === "N" || bSide === "S") out[last].x = b.x;
-    else out[last].y = b.y;
-
-    return out;
-}
-
 function portPoint(v: NodeView, side: Side, offset = PORT_OFFSET): RelationPoint {
     const m = sideMidpoint(v, side);
     const n = sideNormal(side);
     return { x: m.x + n.x * offset, y: m.y + n.y * offset };
 }
 
-function isSamePoint(a: RelationPoint, b: RelationPoint) {
-    return Math.abs(a.x - b.x) < 0.001 && Math.abs(a.y - b.y) < 0.001;
-}
-
-function pushPoint(out: RelationPoint[], p: RelationPoint) {
-    const last = out[out.length - 1];
-    if (!last || !isSamePoint(last, p)) out.push(p);
-}
-
-function autoOrthoRoute(a: RelationPoint, aSide: Side, b: RelationPoint, bSide: Side, gap: number): RelationPoint[] {
-    const na = sideNormal(aSide);
-    const nb = sideNormal(bSide);
-
-    const exit = { x: a.x + na.x * gap, y: a.y + na.y * gap };
-    const entry = { x: b.x + nb.x * gap, y: b.y + nb.y * gap };
-
-    const pts: RelationPoint[] = [];
-    pushPoint(pts, exit);
-
-    const dx = entry.x - exit.x;
-    const dy = entry.y - exit.y;
-
-    if (Math.abs(dx) >= 0.001 && Math.abs(dy) >= 0.001) {
-        const preferHFirst = Math.abs(dx) >= Math.abs(dy);
-        const mid = preferHFirst ? { x: entry.x, y: exit.y } : { x: exit.x, y: entry.y };
-        pushPoint(pts, mid);
-    }
-
-    pushPoint(pts, entry);
-    return pts;
-}
-
-function buildPathPoints(
-    r: UmlRelation,
-    viewsById: ViewsById
-): { a: RelationPoint; b: RelationPoint; points: RelationPoint[]; fromSide: Side; toSide: Side } | null {
-    const from = viewsById[r.fromId];
-    const to = viewsById[r.toId];
-    if (!from || !to) return null;
-
-    const toC = center(to);
-    const fromC = center(from);
-
-    const fromSide: Side = r.fromPortLocked
-        ? ((r.fromPort as Side | undefined) ?? chooseSide(from, toC))
-        : chooseSide(from, toC);
-    const toSide: Side = r.toPortLocked
-        ? ((r.toPort as Side | undefined) ?? chooseSide(to, fromC))
-        : chooseSide(to, fromC);
-
-    const a = portPoint(from, fromSide);
-    const b = portPoint(to, toSide);
-
-    const hasUser = !!(r.controlPoints && r.controlPoints.length > 0);
-
-    const controls: RelationPoint[] = hasUser
-        ? enforceEndpointPerpendicular(a, fromSide, b, toSide, r.controlPoints!)
-        : autoOrthoRoute(a, fromSide, b, toSide, 24);
-
-    const points: RelationPoint[] = [a, ...controls, b];
-    return { a, b, points, fromSide, toSide };
-}
-
-function pointsToPath(points: RelationPoint[]) {
-    if (points.length === 0) return "";
-    const [p0, ...rest] = points;
-    return [`M ${p0.x} ${p0.y}`, ...rest.map((p) => `L ${p.x} ${p.y}`)].join(" ");
-}
-
-function dist2(p1: RelationPoint, p2: RelationPoint) {
-    const dx = p1.x - p2.x;
-    const dy = p1.y - p2.y;
+function dist2(a: RelationPoint, b: RelationPoint) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
     return dx * dx + dy * dy;
 }
 
@@ -179,218 +94,208 @@ export default function RelationLayer(p: Props) {
         onSelectRelation,
         onStartReconnect,
         routing,
-        onContextMenuRelation,
+        getControls,
+        onStartWaypointDrag,
+        onStartEndpointDrag,
     } = p;
 
-    const getControls = routing?.getEffectiveControlPoints;
+    const portLayout = useMemo(() => buildPortLayout(relations, viewsById), [relations, viewsById]);
 
     const dragKey = useMemo(() => {
-        if (!routing?.isActive || !routing.relationId || !getControls) return "";
-
-        const r = relations.find((rr) => rr.id === routing.relationId);
-        if (!r) return "";
-
-        const pts = getControls(r);
-        if (!pts || pts.length === 0) return "";
-
-        // petite "signature" stable mais sensible au mouvement
-        let acc = pts.length * 1000003;
-        for (let i = 0; i < pts.length; i++) {
-            const x = Math.round(pts[i].x);
-            const y = Math.round(pts[i].y);
-            acc = (acc * 31 + x) | 0;
-            acc = (acc * 17 + y) | 0;
-        }
-        return `${routing.relationId}:${acc}`;
-    }, [routing?.isActive, routing?.relationId, getControls, relations]);
+        if (!routing || !routing.isActive) return "";
+        return `${routing.relationId}:${routing.kind}:${routing.i}:${routing.desiredInnerCount}:${routing.draft.x},${routing.draft.y}`;
+    }, [routing]);
 
     const paths = useMemo(() => {
         return relations
             .map((r) => {
-                const built = buildPathPoints(r, viewsById);
-                if (!built) return null;
+                const from = viewsById[r.fromId];
+                const to = viewsById[r.toId];
+                if (!from || !to) return null;
 
-                let { a, b, points, fromSide, toSide } = built;
+                const toC = center(to);
+                const fromC = center(from);
 
-                // IMPORTANT: pendant un drag waypoint, le path doit utiliser les points effectifs (draft inclus)
-                if (routing?.isActive && routing.relationId === r.id && getControls) {
-                    const eff = getControls(r);
-                    if (eff && eff.length >= 2) {
-                        points = eff;
-                        a = eff[0];
-                        b = eff[eff.length - 1];
+                const fromSide: Side = r.fromPortLocked
+                    ? ((r.fromPort as Side | undefined) ?? chooseSide(from, toC))
+                    : chooseSide(from, toC);
+                const toSide: Side = r.toPortLocked
+                    ? ((r.toPort as Side | undefined) ?? chooseSide(to, fromC))
+                    : chooseSide(to, fromC);
+
+                const ap = getEndpointPortPoint(portLayout, r.id, "from", viewsById);
+                const bp = getEndpointPortPoint(portLayout, r.id, "to", viewsById);
+
+                let a: RelationPoint = ap?.point ?? portPoint(from, fromSide);
+                let b: RelationPoint = bp?.point ?? portPoint(to, toSide);
+
+                const hasUser = !!(r.controlPoints && r.controlPoints.length > 0);
+                const mode: "auto" | "manual" = (r.routingMode ?? (hasUser ? "manual" : "auto")) as any;
+
+                const autoInner = makeControlPointsWithCount(r, viewsById as any, 2, relations);
+
+                let inner: RelationPoint[] =
+                    mode === "manual" ? (hasUser ? (r.controlPoints ?? []) : autoInner) : autoInner;
+
+                if (routing && routing.isActive && routing.relationId === r.id) {
+                    if (routing.kind === "from") {
+                        a = routing.draft;
+                    } else if (routing.kind === "to") {
+                        b = routing.draft;
+                    } else if (routing.kind === "waypoint") {
+                        const draftInner = getControls?.(r.id);
+                        if (draftInner && draftInner.length > 0) inner = draftInner;
                     }
                 }
 
-                const midIdx = Math.floor(points.length / 2);
-                const m = points[midIdx] ?? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+                const pts: RelationPoint[] = [a, ...inner, b];
 
-                return { r, a, b, points, fromSide, toSide, m, d: pointsToPath(points) };
+                let labelPos: RelationPoint | null = null;
+                if (r.label && pts.length >= 2) {
+                    let bestI = 0;
+                    let bestD = -1;
+                    for (let i = 0; i + 1 < pts.length; i++) {
+                        const d = dist2(pts[i], pts[i + 1]);
+                        if (d > bestD) {
+                            bestD = d;
+                            bestI = i;
+                        }
+                    }
+                    const p0 = pts[bestI];
+                    const p1 = pts[bestI + 1];
+                    const mid = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+                    labelPos = { x: mid.x, y: mid.y - LABEL_OFFSET };
+                }
+
+                return { r, pts, labelPos, mode, inner };
             })
             .filter(Boolean) as {
             r: UmlRelation;
-            a: RelationPoint;
-            b: RelationPoint;
-            points: RelationPoint[];
-            fromSide: Side;
-            toSide: Side;
-            m: RelationPoint;
-            d: string;
+            pts: RelationPoint[];
+            labelPos: RelationPoint | null;
+            mode: "auto" | "manual";
+            inner: RelationPoint[];
         }[];
-    }, [relations, viewsById, dragKey, routing?.isActive, routing?.relationId, getControls]);
+    }, [relations, viewsById, portLayout, getControls, routing, dragKey]);
 
     return (
         <g>
-            <defs>
-                <marker id="uml-arrow-open" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
-                    <path d="M0,0 L10,5 L0,10" fill="none" stroke="#cfd6e6" strokeWidth="1.5" />
-                </marker>
+            {paths.map(({ r, pts, labelPos, mode, inner }) => {
+                const selected = selectedRelationId === r.id || !!selectedRelationIds?.includes(r.id);
 
-                <marker id="uml-arrow-triangle" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-                    <path d="M0,0 L12,6 L0,12 Z" fill="none" stroke="#cfd6e6" strokeWidth="1.5" />
-                </marker>
-
-                <marker id="uml-diamond-open" markerWidth="14" markerHeight="14" refX="2" refY="7" orient="auto">
-                    <path d="M0,7 L6,0 L12,7 L6,14 Z" fill="none" stroke="#cfd6e6" strokeWidth="1.5" />
-                </marker>
-
-                <marker id="uml-diamond-filled" markerWidth="14" markerHeight="14" refX="2" refY="7" orient="auto">
-                    <path d="M0,7 L6,0 L12,7 L6,14 Z" fill="#cfd6e6" stroke="#cfd6e6" strokeWidth="1.5" />
-                </marker>
-            </defs>
-
-            {paths.map(({ r, a, b, d, m, fromSide, toSide }) => {
-                const selected = selectedRelationIds ? selectedRelationIds.includes(r.id) : r.id === selectedRelationId;
-                const stroke = selected ? "#6aa9ff" : "#cfd6e6";
-                const sw = selected ? 2.5 : 1.5;
-
-                const HANDLE_R = 4;
-                const HANDLE_HIT_R = 10;
-
-                const RECONNECT_R = 9;
-
-                // Waypoints
-                const hasExplicit = !!(r.controlPoints && r.controlPoints.length > 0);
-
-                // visibles:
-                // - pendant un drag (routing actif) => points effectifs (inclut auto)
-                // - sinon uniquement si l'utilisateur a explicitement créé des controlPoints
-                const cps: RelationPoint[] =
-                    routing?.isActive && routing.relationId === r.id && getControls
-                        ? getControls(r)
-                        : hasExplicit
-                            ? [a, ...enforceEndpointPerpendicular(a, fromSide, b, toSide, r.controlPoints!), b]
-                            : [];
-
-                const showWaypoints = selected && cps.length > 0;
-                const endpointsAreWaypoints = !!routing && showWaypoints && cps.length >= 2;
+                const d = pts.reduce((acc, p, i) => {
+                    const cmd = i === 0 ? "M" : "L";
+                    return acc + `${cmd}${p.x},${p.y} `;
+                }, "");
 
                 return (
-                    <g key={r.id}>
+                    <g key={r.id} onMouseDown={(e) => onSelectRelation(r.id, e)}>
+                        {/* Relation hitbox */}
                         <path
                             d={d}
                             fill="none"
                             stroke="transparent"
-                            strokeWidth={12}
-                            onMouseDown={(e) => {
-                                e.stopPropagation();
-                                onSelectRelation(r.id, e);
-                            }}
-                            onContextMenu={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                onSelectRelation(r.id, undefined);
-                                onContextMenuRelation({ id: r.id, clientX: e.clientX, clientY: e.clientY });
-                            }}
-                            style={{ cursor: "pointer" }}
+                            strokeWidth={RELATION_HIT_STROKE}
+                            style={{ pointerEvents: "stroke" }}
+                            onMouseDown={(e) => onSelectRelation(r.id, e)}
                         />
 
+                        {/* Relation visible */}
                         <path
                             d={d}
                             fill="none"
-                            stroke={stroke}
-                            strokeWidth={sw}
-                            markerEnd={markerEnd(r.kind)}
-                            markerStart={markerStart(r.kind)}
-                            pointerEvents="none"
+                            stroke="currentColor"
+                            strokeWidth={selected ? 3 : 2}
+                            style={{ pointerEvents: "none" }}
                         />
 
-                        {showWaypoints && (
-                            <g>
-                                {cps.map((pt, idx) => {
-                                    const hit = 10;
-                                    const rad = 4;
-
-                                    const nearFrom = dist2(pt, a) <= RECONNECT_R * RECONNECT_R;
-                                    const nearTo = dist2(pt, b) <= RECONNECT_R * RECONNECT_R;
-
-                                    return (
-                                        <g key={`${r.id}-cp-${idx}`}>
-                                            <circle
-                                                cx={pt.x}
-                                                cy={pt.y}
-                                                r={hit}
-                                                fill="transparent"
-                                                onMouseDown={(e) => {
-                                                    if (!routing) return;
-                                                    e.stopPropagation();
-                                                    onSelectRelation(r.id, e);
-
-                                                    // endpoints (idx 0 / last) : drag => relocalisation manuelle d'ancre
-                                                    // (useRelationRouting commit() fera le snap sur un port)
-                                                    routing.start(r.id, idx);
-                                                }}
-                                                style={{
-                                                    cursor: routing ? (nearFrom || nearTo ? "move" : "grab") : "default",
-                                                }}
-                                            />
-                                            <circle cx={pt.x} cy={pt.y} r={rad} fill={stroke} pointerEvents="none" />
-                                        </g>
-                                    );
-                                })}
-                            </g>
-                        )}
-
-                        {selected && !endpointsAreWaypoints && (
-                            <g>
+                        {/* Endpoints (hitbox + visible) */}
+                        {pts.length >= 2 && (
+                            <>
+                                {/* from hitbox */}
                                 <circle
-                                    cx={a.x}
-                                    cy={a.y}
-                                    r={HANDLE_HIT_R}
+                                    cx={pts[0].x}
+                                    cy={pts[0].y}
+                                    r={ENDPOINT_HIT_R}
                                     fill="transparent"
+                                    style={{ pointerEvents: "all", cursor: "move" }}
                                     onMouseDown={(e) => {
                                         e.stopPropagation();
-                                        onSelectRelation(r.id, e);
+                                        onStartEndpointDrag?.({ relationId: r.id, end: "from", e });
+                                    }}
+                                    onDoubleClick={(e) => {
+                                        e.stopPropagation();
                                         onStartReconnect({ id: r.id, end: "from" });
                                     }}
-                                    style={{ cursor: "crosshair" }}
                                 />
-                                <circle cx={a.x} cy={a.y} r={HANDLE_R} fill={stroke} pointerEvents="none" />
-
+                                {/* from visible */}
                                 <circle
-                                    cx={b.x}
-                                    cy={b.y}
-                                    r={HANDLE_HIT_R}
+                                    cx={pts[0].x}
+                                    cy={pts[0].y}
+                                    r={ENDPOINT_VIS_R}
+                                    fill="currentColor"
+                                    style={{ pointerEvents: "none" }}
+                                />
+
+                                {/* to hitbox */}
+                                <circle
+                                    cx={pts[pts.length - 1].x}
+                                    cy={pts[pts.length - 1].y}
+                                    r={ENDPOINT_HIT_R}
                                     fill="transparent"
+                                    style={{ pointerEvents: "all", cursor: "move" }}
                                     onMouseDown={(e) => {
                                         e.stopPropagation();
-                                        onSelectRelation(r.id, e);
+                                        onStartEndpointDrag?.({ relationId: r.id, end: "to", e });
+                                    }}
+                                    onDoubleClick={(e) => {
+                                        e.stopPropagation();
                                         onStartReconnect({ id: r.id, end: "to" });
                                     }}
-                                    style={{ cursor: "crosshair" }}
                                 />
-                                <circle cx={b.x} cy={b.y} r={HANDLE_R} fill={stroke} pointerEvents="none" />
-                            </g>
+                                {/* to visible */}
+                                <circle
+                                    cx={pts[pts.length - 1].x}
+                                    cy={pts[pts.length - 1].y}
+                                    r={ENDPOINT_VIS_R}
+                                    fill="currentColor"
+                                    style={{ pointerEvents: "none" }}
+                                />
+                            </>
                         )}
 
-                        {r.label && r.label.trim().length > 0 && (
+                        {/* Waypoints (hitbox + visible) */}
+                        {mode === "manual" &&
+                            inner.map((wp, i) => (
+                                <g key={i}>
+                                    {/* hitbox */}
+                                    <circle
+                                        cx={wp.x}
+                                        cy={wp.y}
+                                        r={WAYPOINT_HIT_R}
+                                        fill="transparent"
+                                        style={{ pointerEvents: "all", cursor: "move" }}
+                                        onMouseDown={(e) => {
+                                            e.stopPropagation();
+                                            onStartWaypointDrag?.({ relationId: r.id, i, e });
+                                        }}
+                                    />
+                                    {/* visible */}
+                                    <circle
+                                        cx={wp.x}
+                                        cy={wp.y}
+                                        r={WAYPOINT_VIS_R}
+                                        fill="currentColor"
+                                        style={{ pointerEvents: "none" }}
+                                    />
+                                </g>
+                            ))}
+
+                        {labelPos && (
                             <text
-                                x={m.x}
-                                y={m.y - 6}
+                                x={labelPos.x}
+                                y={labelPos.y}
                                 textAnchor="middle"
-                                fontSize={12}
-                                fill={stroke}
-                                fontFamily="Inter, system-ui, sans-serif"
                                 style={{ userSelect: "none" as const, pointerEvents: "none" }}
                             >
                                 {r.label}

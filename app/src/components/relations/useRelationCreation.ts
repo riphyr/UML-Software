@@ -2,9 +2,6 @@ import { useMemo, useState } from "react";
 import type { PortSide, RelationKind, UmlRelation } from "../../model/relation";
 import type { ViewsById } from "../../model/views";
 import type { NodeView } from "../../model/view";
-import { makeControlPointsWithCount } from "./routingUtils";
-
-const DEFAULT_INTERNAL_WAYPOINTS = 2;
 
 type Side = PortSide;
 
@@ -154,30 +151,23 @@ export function useRelationCreation(p: {
 
         const toPort = hover && hover.id === toId ? hover.port : undefined;
 
-        const fromSide: Side = preview.fromPort ?? chooseSide(fromView, center(toView));
-        const toSide: Side = toPort ?? chooseSide(toView, center(fromView));
-
-        const id = `rel-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
         const base: UmlRelation = {
-            id,
+            id: crypto.randomUUID(),
+            kind,
             fromId: preview.fromId,
             toId,
-            kind,
-            label: "",
-            fromPort: preview.fromPort ? fromSide : undefined,
-            toPort: toPort ? toSide : undefined,
+            fromPort: preview.fromPort,
+            toPort,
             fromPortLocked: !!preview.fromPort,
             toPortLocked: !!toPort,
-            routingMode: "manual",
+
+            // AUTO par défaut
+            routingMode: "auto",
+            // pas de points persistés en auto
+            controlPoints: [],
         };
 
-        const withDefault: UmlRelation = {
-            ...base,
-            controlPoints: makeControlPointsWithCount(base, viewsById, DEFAULT_INTERNAL_WAYPOINTS),
-        };
-
-        setRelations((prev) => [...prev, withDefault]);
+        setRelations((prev) => [...prev, base]);
         setPreview(null);
         setHover(null);
     }
@@ -192,30 +182,27 @@ export function useRelationCreation(p: {
         const toView = viewsById[toId];
         if (!fromView || !toView) return;
 
-        const fromSide: Side = preview.fromPort ?? chooseSide(fromView, center(toView));
-        const toSide: Side = port;
-
-        const id = `rel-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
+        // IMPORTANT: idem commitTo -> AUTO + aucun controlPoint stocké.
+        // "manuel" ici = choix de face uniquement (toPortLocked), pas de slot/position.
         const base: UmlRelation = {
-            id,
+            id: crypto.randomUUID(),
+            kind,
             fromId: preview.fromId,
             toId,
-            kind,
-            label: "",
-            fromPort: preview.fromPort ? fromSide : undefined,
-            toPort: toSide,
+
+            // fromPort stocké seulement si l'utilisateur a choisi explicitement une face
+            fromPort: preview.fromPort,
             fromPortLocked: !!preview.fromPort,
+
+            // toPort fixé explicitement (face lock only)
+            toPort: port,
             toPortLocked: true,
-            routingMode: "manual",
+
+            routingMode: "auto",
+            controlPoints: [],
         };
 
-        const withDefault: UmlRelation = {
-            ...base,
-            controlPoints: makeControlPointsWithCount(base, viewsById, DEFAULT_INTERNAL_WAYPOINTS),
-        };
-
-        setRelations((prev) => [...prev, withDefault]);
+        setRelations((prev) => [...prev, base]);
         setPreview(null);
         setHover(null);
     }

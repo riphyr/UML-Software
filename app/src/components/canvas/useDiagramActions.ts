@@ -440,17 +440,21 @@ export function useDiagramActions(args: {
 
         const MIN_WP = 2;
         const MAX_WP = 10;
-
         const n = Math.max(MIN_WP, Math.min(MAX_WP, Math.floor(count)));
 
         undo.pushSnapshot();
 
-        const cps = makeControlPointsWithCount(r0, viewsById, n);
+        // IMPORTANT: passer relations pour que les ports distribués soient pris en compte
+        const cps = makeControlPointsWithCount(r0, viewsById, n, relations);
 
-        setRelations((prev: UmlRelation[]) =>
+        setRelations((prev) =>
             prev.map((r) => {
                 if (r.id !== r0.id) return r;
-                return { ...r, controlPoints: cps };
+                return {
+                    ...r,
+                    routingMode: "manual",   // <-- indispensable : sinon RelationLayer masque les waypoints
+                    controlPoints: cps,      // cps.length >= 2
+                };
             })
         );
     }
