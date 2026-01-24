@@ -11,6 +11,9 @@ export type InspectorActions = {
     setRelationKindOnSelected: (kind: RelationKind) => void;
     setRelationLabelOnSelected: (label: string) => void;
 
+    // swap from/to (inverse la direction visuelle / sémantique)
+    swapRelationDirectionOnSelected: () => void;
+
     // NEW: waypoints (controlPoints) count (0 = straight)
     setRelationWaypointCountOnSelected: (count: number) => void;
 };

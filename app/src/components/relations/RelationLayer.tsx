@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import type { PortSide, RelationPoint, UmlRelation } from "../../model/relation";
+import { getRelationRenderSpec } from "../../model/relation";
 import type { ViewsById } from "../../model/views";
 import type { NodeView } from "../../model/view";
 import { buildPortLayout, getEndpointPortPoint } from "./ports";
 import { makeControlPointsWithCount } from "./routingUtils";
+import { vAdd, vMul, vNorm, vPerp, vSub, type Pt } from "../../utils/geom";
 
 type Props = {
     relations: UmlRelation[];
@@ -43,7 +45,9 @@ const RELATION_HIT_STROKE = 12;
 const WAYPOINT_HIT_R = 10;
 const WAYPOINT_VIS_R = 5;
 const ENDPOINT_HIT_R = 12;
-const ENDPOINT_VIS_R = 6;
+
+// Visible handles (quand sélectionné)
+const ENDPOINT_VIS_R = 5;
 
 function center(v: NodeView): RelationPoint {
     return { x: v.x + v.width / 2, y: v.y + v.height / 2 };
@@ -83,6 +87,70 @@ function dist2(a: RelationPoint, b: RelationPoint) {
     const dx = a.x - b.x;
     const dy = a.y - b.y;
     return dx * dx + dy * dy;
+}
+
+function toPt(p: RelationPoint): Pt {
+    return { x: p.x, y: p.y };
+}
+
+function markerAdjustedEnd(pts: RelationPoint[], pad: number): RelationPoint {
+    const n = pts.length;
+    const b = toPt(pts[n - 1]);
+    const prev = toPt(pts[n - 2]);
+
+    const u = vNorm(vSub(b, prev));
+    const endAdj = vAdd(b, vMul(u, -pad));
+    return { x: endAdj.x, y: endAdj.y };
+}
+
+function renderMarker(kind: UmlRelation["kind"], pts: RelationPoint[]) {
+    if (pts.length < 2) return null;
+
+    const spec = getRelationRenderSpec(kind);
+    const m = spec.marker;
+    if (m.type === "none") return null;
+
+    const n = pts.length;
+    const b = toPt(pts[n - 1]);
+    const prev = toPt(pts[n - 2]);
+    const u = vNorm(vSub(b, prev));
+    const p = vPerp(u);
+
+    const len = m.len;
+    const w = m.width;
+
+    if (m.type === "triangle-hollow") {
+        const base = vAdd(b, vMul(u, -len));
+        const p1 = vAdd(base, vMul(p, w / 2));
+        const p2 = vAdd(base, vMul(p, -w / 2));
+        const points = `${b.x},${b.y} ${p1.x},${p1.y} ${p2.x},${p2.y}`;
+        return <polygon points={points} fill="none" stroke="currentColor" strokeWidth={2} />;
+    }
+
+    if (m.type === "arrow-open") {
+        const base = vAdd(b, vMul(u, -len));
+        const p1 = vAdd(base, vMul(p, w / 2));
+        const p2 = vAdd(base, vMul(p, -w / 2));
+        return (
+            <g>
+                <line x1={b.x} y1={b.y} x2={p1.x} y2={p1.y} stroke="currentColor" strokeWidth={2} />
+                <line x1={b.x} y1={b.y} x2={p2.x} y2={p2.y} stroke="currentColor" strokeWidth={2} />
+            </g>
+        );
+    }
+
+    if (m.type === "diamond-hollow" || m.type === "diamond-filled") {
+        const near = b;
+        const far = vAdd(b, vMul(u, -len));
+        const mid = vAdd(b, vMul(u, -len / 2));
+        const p1 = vAdd(mid, vMul(p, w / 2));
+        const p2 = vAdd(mid, vMul(p, -w / 2));
+        const points = `${near.x},${near.y} ${p1.x},${p1.y} ${far.x},${far.y} ${p2.x},${p2.y}`;
+        const fill = m.type === "diamond-filled" ? "currentColor" : "none";
+        return <polygon points={points} fill={fill} stroke="currentColor" strokeWidth={2} />;
+    }
+
+    return null;
 }
 
 export default function RelationLayer(p: Props) {
@@ -167,11 +235,21 @@ export default function RelationLayer(p: Props) {
                     labelPos = { x: mid.x, y: mid.y - LABEL_OFFSET };
                 }
 
-                return { r, pts, labelPos, mode, inner };
+                const spec = getRelationRenderSpec(r.kind);
+                const pad = spec.marker.type === "none" ? 0 : spec.marker.pad;
+
+                let ptsVis = pts;
+                if (pad > 0 && pts.length >= 2) {
+                    const endAdj = markerAdjustedEnd(pts, pad);
+                    ptsVis = [...pts.slice(0, -1), endAdj];
+                }
+
+                return { r, pts, ptsVis, labelPos, mode, inner };
             })
             .filter(Boolean) as {
             r: UmlRelation;
             pts: RelationPoint[];
+            ptsVis: RelationPoint[];
             labelPos: RelationPoint | null;
             mode: "auto" | "manual";
             inner: RelationPoint[];
@@ -180,19 +258,27 @@ export default function RelationLayer(p: Props) {
 
     return (
         <g>
-            {paths.map(({ r, pts, labelPos, mode, inner }) => {
+            {paths.map(({ r, pts, ptsVis, labelPos, mode, inner }) => {
                 const selected = selectedRelationId === r.id || !!selectedRelationIds?.includes(r.id);
+                const activeDrag = !!(routing && routing.isActive && routing.relationId === r.id);
+                const showHandles = selected || activeDrag;
 
-                const d = pts.reduce((acc, p, i) => {
+                const dHit = pts.reduce((acc, p, i) => {
                     const cmd = i === 0 ? "M" : "L";
                     return acc + `${cmd}${p.x},${p.y} `;
                 }, "");
 
+                const dVis = ptsVis.reduce((acc, p, i) => {
+                    const cmd = i === 0 ? "M" : "L";
+                    return acc + `${cmd}${p.x},${p.y} `;
+                }, "");
+
+                const spec = getRelationRenderSpec(r.kind);
+
                 return (
                     <g key={r.id} onMouseDown={(e) => onSelectRelation(r.id, e)}>
-                        {/* Relation hitbox */}
                         <path
-                            d={d}
+                            d={dHit}
                             fill="none"
                             stroke="transparent"
                             strokeWidth={RELATION_HIT_STROKE}
@@ -200,19 +286,20 @@ export default function RelationLayer(p: Props) {
                             onMouseDown={(e) => onSelectRelation(r.id, e)}
                         />
 
-                        {/* Relation visible */}
                         <path
-                            d={d}
+                            d={dVis}
                             fill="none"
                             stroke="currentColor"
                             strokeWidth={selected ? 3 : 2}
+                            strokeDasharray={spec.dashed ? "6 6" : undefined}
                             style={{ pointerEvents: "none" }}
                         />
 
-                        {/* Endpoints (hitbox + visible) */}
+                        {renderMarker(r.kind, pts)}
+
+                        {/* endpoints : hitbox toujours, visible seulement si showHandles */}
                         {pts.length >= 2 && (
                             <>
-                                {/* from hitbox */}
                                 <circle
                                     cx={pts[0].x}
                                     cy={pts[0].y}
@@ -228,16 +315,16 @@ export default function RelationLayer(p: Props) {
                                         onStartReconnect({ id: r.id, end: "from" });
                                     }}
                                 />
-                                {/* from visible */}
-                                <circle
-                                    cx={pts[0].x}
-                                    cy={pts[0].y}
-                                    r={ENDPOINT_VIS_R}
-                                    fill="currentColor"
-                                    style={{ pointerEvents: "none" }}
-                                />
+                                {showHandles && (
+                                    <circle
+                                        cx={pts[0].x}
+                                        cy={pts[0].y}
+                                        r={ENDPOINT_VIS_R}
+                                        fill="currentColor"
+                                        style={{ pointerEvents: "none" }}
+                                    />
+                                )}
 
-                                {/* to hitbox */}
                                 <circle
                                     cx={pts[pts.length - 1].x}
                                     cy={pts[pts.length - 1].y}
@@ -253,22 +340,22 @@ export default function RelationLayer(p: Props) {
                                         onStartReconnect({ id: r.id, end: "to" });
                                     }}
                                 />
-                                {/* to visible */}
-                                <circle
-                                    cx={pts[pts.length - 1].x}
-                                    cy={pts[pts.length - 1].y}
-                                    r={ENDPOINT_VIS_R}
-                                    fill="currentColor"
-                                    style={{ pointerEvents: "none" }}
-                                />
+                                {showHandles && (
+                                    <circle
+                                        cx={pts[pts.length - 1].x}
+                                        cy={pts[pts.length - 1].y}
+                                        r={ENDPOINT_VIS_R}
+                                        fill="currentColor"
+                                        style={{ pointerEvents: "none" }}
+                                    />
+                                )}
                             </>
                         )}
 
-                        {/* Waypoints (hitbox + visible) */}
+                        {/* waypoints : hitbox toujours, visible seulement si showHandles */}
                         {mode === "manual" &&
                             inner.map((wp, i) => (
                                 <g key={i}>
-                                    {/* hitbox */}
                                     <circle
                                         cx={wp.x}
                                         cy={wp.y}
@@ -280,14 +367,15 @@ export default function RelationLayer(p: Props) {
                                             onStartWaypointDrag?.({ relationId: r.id, i, e });
                                         }}
                                     />
-                                    {/* visible */}
-                                    <circle
-                                        cx={wp.x}
-                                        cy={wp.y}
-                                        r={WAYPOINT_VIS_R}
-                                        fill="currentColor"
-                                        style={{ pointerEvents: "none" }}
-                                    />
+                                    {showHandles && (
+                                        <circle
+                                            cx={wp.x}
+                                            cy={wp.y}
+                                            r={WAYPOINT_VIS_R}
+                                            fill="currentColor"
+                                            style={{ pointerEvents: "none" }}
+                                        />
+                                    )}
                                 </g>
                             ))}
 

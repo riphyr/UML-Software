@@ -432,6 +432,39 @@ export function useDiagramActions(args: {
         setRelations(relations.map((r) => (r.id === selectedRelationId ? { ...r, label } : r)));
     }
 
+    function swapRelationDirectionOnSelected() {
+        if (!selectedRelationId) return;
+
+        const r0 = relations.find((r) => r.id === selectedRelationId);
+        if (!r0) return;
+
+        undo.pushSnapshot();
+
+        setRelations((prev) =>
+            prev.map((r) => {
+                if (r.id !== r0.id) return r;
+
+                // Swap endpoints + ports/locks.
+                // Pour garder le même tracé en mode manuel, on inverse aussi l'ordre des controlPoints.
+                const cps = r.controlPoints ? [...r.controlPoints].reverse() : r.controlPoints;
+
+                return {
+                    ...r,
+                    fromId: r.toId,
+                    toId: r.fromId,
+
+                    fromPort: r.toPort,
+                    toPort: r.fromPort,
+
+                    fromPortLocked: r.toPortLocked,
+                    toPortLocked: r.fromPortLocked,
+
+                    controlPoints: cps,
+                };
+            })
+        );
+    }
+
     function setRelationWaypointCountOnSelected(count: number) {
         if (!selectedRelationId) return;
 
@@ -491,6 +524,7 @@ export function useDiagramActions(args: {
         setRelationKindOnSelected,
         setRelationLabelOnSelected,
         setRelationWaypointCountOnSelected,
+        swapRelationDirectionOnSelected,
 
         editSelectedRelationLabel,
         applySnapshot,

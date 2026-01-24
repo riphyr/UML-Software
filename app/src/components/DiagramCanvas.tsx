@@ -671,13 +671,15 @@ export default function DiagramCanvas() {
             </svg>
 
             <div
+                className="uml-inspector"
                 style={{
                     position: "absolute",
                     top: 12,
                     right: 12,
-                    width: 340,
+                    width: 450,
                     maxHeight: "calc(100% - 24px)",
-                    overflow: "auto",
+                    overflowX: "hidden",
+                    overflowY: "auto",
                     zIndex: 10,
                 }}
             >
@@ -692,6 +694,7 @@ export default function DiagramCanvas() {
                         setRelationKindOnSelected: actions.setRelationKindOnSelected,
                         setRelationLabelOnSelected: actions.setRelationLabelOnSelected,
                         setRelationWaypointCountOnSelected: actions.setRelationWaypointCountOnSelected,
+                        swapRelationDirectionOnSelected: actions.swapRelationDirectionOnSelected,
                         deleteSelected: actions.deleteSelected,
                         duplicateSelected: actions.duplicateSelected,
                     }}

@@ -2,6 +2,7 @@ import type { UmlClass } from "./uml";
 import type { NodeView } from "./view";
 import type { ViewsById } from "./views";
 import type { UmlRelation } from "./relation";
+import { normalizeRelationKind } from "./relation";
 
 export type DiagramSnapshotV1 = {
     version: 1;
@@ -18,7 +19,7 @@ export type DiagramSnapshotV2 = {
 
 export type DiagramSnapshot = DiagramSnapshotV1 | DiagramSnapshotV2;
 
-// ✅ rétro-compatible : les anciens appels makeSnapshot(classes, viewsById) continuent de compiler
+// rétro-compatible : makeSnapshot(classes, viewsById) marche encore
 export function makeSnapshot(classes: UmlClass[], viewsById: ViewsById, relations: UmlRelation[] = []): DiagramSnapshotV2 {
     return { version: 2, classes, viewsById, relations };
 }
@@ -38,16 +39,20 @@ export function isSnapshotV2(x: unknown): x is DiagramSnapshotV2 {
     if (o.version !== 2) return false;
     if (!Array.isArray(o.classes)) return false;
     if (!o.viewsById || typeof o.viewsById !== "object") return false;
-    if (!Array.isArray(o.relations)) return false;
+
+    // IMPORTANT: compat — certains v2 historiques/imports peuvent ne pas avoir "relations"
+    if (o.relations !== undefined && !Array.isArray(o.relations)) return false;
+
     return true;
 }
 
 function normalizeViews(classes: UmlClass[], viewsById: ViewsById): ViewsById {
-    const ids = new Set<string>(classes.map(c => c.id));
+    const ids = new Set<string>(classes.map((c) => c.id));
 
     const nextViews: ViewsById = {};
     for (const id of ids) {
         const v = (viewsById as any)[id] as NodeView | undefined;
+
         const validBox =
             v &&
             typeof v.x === "number" &&
@@ -68,15 +73,37 @@ function normalizeViews(classes: UmlClass[], viewsById: ViewsById): ViewsById {
 }
 
 function normalizeRelations(classes: UmlClass[], relations: UmlRelation[]): UmlRelation[] {
-    const ids = new Set<string>(classes.map(c => c.id));
-    return (relations ?? []).filter(r => {
-        if (!r || typeof r !== "object") return false;
-        if (typeof r.id !== "string") return false;
-        if (typeof r.fromId !== "string" || typeof r.toId !== "string") return false;
-        if (!ids.has(r.fromId) || !ids.has(r.toId)) return false;
-        if (r.fromId === r.toId) return false;
-        return true;
-    });
+    const ids = new Set<string>(classes.map((c) => c.id));
+
+    return (relations ?? [])
+        .map((r) => {
+            if (!r || typeof r !== "object") return null;
+            const o = r as any;
+
+            if (typeof o.id !== "string") return null;
+            if (typeof o.fromId !== "string" || typeof o.toId !== "string") return null;
+            if (!ids.has(o.fromId) || !ids.has(o.toId)) return null;
+            if (o.fromId === o.toId) return null;
+
+            const kind = normalizeRelationKind(o.kind);
+
+            const cps = Array.isArray(o.controlPoints)
+                ? o.controlPoints.filter((p: any) => p && typeof p.x === "number" && typeof p.y === "number")
+                : undefined;
+
+            const routingMode =
+                o.routingMode === "manual" ? "manual" : o.routingMode === "auto" ? "auto" : undefined;
+
+            const next: UmlRelation = {
+                ...o,
+                kind,
+                controlPoints: cps,
+                routingMode,
+            };
+
+            return next;
+        })
+        .filter(Boolean) as UmlRelation[];
 }
 
 export function normalizeSnapshot(s: DiagramSnapshot): DiagramSnapshotV2 {
@@ -93,7 +120,7 @@ export function normalizeSnapshot(s: DiagramSnapshot): DiagramSnapshotV2 {
     if (isSnapshotV2(s)) {
         const classes = s.classes ?? [];
         const views = normalizeViews(classes, s.viewsById ?? {});
-        const relations = normalizeRelations(classes, s.relations ?? []);
+        const relations = normalizeRelations(classes, (s as any).relations ?? []);
         return {
             version: 2,
             classes,
@@ -102,7 +129,6 @@ export function normalizeSnapshot(s: DiagramSnapshot): DiagramSnapshotV2 {
         };
     }
 
-    // si un jour on tombe sur un truc corrompu : état vide mais valide
     return {
         version: 2,
         classes: [],

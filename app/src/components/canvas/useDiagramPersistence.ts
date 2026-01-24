@@ -3,7 +3,7 @@ import type { UmlClass } from "../../model/uml";
 import type { ViewsById } from "../../model/views";
 import type { UmlRelation } from "../../model/relation";
 import { loadDiagram, saveDiagram } from "../../model/diagramStorage";
-import { makeSnapshot } from "../../model/diagram";
+import { makeSnapshot, type DiagramSnapshotV2 } from "../../model/diagram";
 import { exportSnapshotToJsonFile, importSnapshotFromJsonFile } from "../../model/diagramFile";
 
 type Params = {
@@ -22,11 +22,12 @@ type Params = {
 export function useDiagramPersistence(p: Params) {
     const { classes, viewsById, setClasses, setViewsById, clearSelection, relations, setRelations } = p;
 
-    function applySnapshot(snap: { classes: UmlClass[]; viewsById: ViewsById; relations?: UmlRelation[] }) {
+    function applySnapshot(snap: DiagramSnapshotV2) {
+        // ordre: données -> puis sélection
         setClasses(snap.classes);
         setViewsById(snap.viewsById);
-        clearSelection();
         if (setRelations) setRelations(snap.relations ?? []);
+        clearSelection();
     }
 
     function saveLocal() {
@@ -42,7 +43,7 @@ export function useDiagramPersistence(p: Params) {
     async function exportFile() {
         try {
             const snap = makeSnapshot(classes, viewsById, relations ?? []);
-            const res = await exportSnapshotToJsonFile(snap as any);
+            const res = await exportSnapshotToJsonFile(snap);
             if (res.ok) console.log("[export] wrote:", res.path);
         } catch (err) {
             console.error("[export] failed:", err);
@@ -54,7 +55,7 @@ export function useDiagramPersistence(p: Params) {
         try {
             const snap = await importSnapshotFromJsonFile();
             if (!snap) return;
-            applySnapshot(snap as any);
+            applySnapshot(snap);
             console.log("[import] ok");
         } catch (err) {
             console.error("[import] failed:", err);

@@ -12,6 +12,7 @@ export default function RelationPanel(p: {
     toName: string;
     onSetKind: (k: RelationKind) => void;
     onSetLabel: (label: string) => void;
+    onSwapDirection: () => void;
     onSetWaypointCount: (count: number) => void;
     onDelete: () => void;
 }) {
@@ -56,12 +57,29 @@ export default function RelationPanel(p: {
                     {p.fromName} → {p.toName}
                 </div>
 
+                <button
+                    type="button"
+                    onClick={p.onSwapDirection}
+                    style={{
+                        padding: "8px 10px",
+                        borderRadius: 10,
+                        border: "1px solid #2a3040",
+                        background: "#0f1420",
+                        color: "#e8eefc",
+                        cursor: "pointer",
+                    }}
+                >
+                    Swap direction
+                </button>
+
                 <SelectField<RelationKind>
                     label="Kind"
                     value={p.r.kind}
                     options={[
                         { value: "assoc", label: "Association" },
-                        { value: "herit", label: "Inheritance" },
+                        { value: "inherit", label: "Inheritance" },
+                        { value: "realize", label: "Realization" },
+                        { value: "depend", label: "Dependency" },
                         { value: "agg", label: "Aggregation" },
                         { value: "comp", label: "Composition" },
                     ]}

@@ -29,3 +29,31 @@ export function rectEdgePointTowards(r: Rect, to: Pt): Pt {
 
     return { x: c.x + dx * t, y: c.y + dy * t };
 }
+
+// --- vecteurs 2D (utiles pour les marqueurs de relations UML) ---
+
+export function vSub(a: Pt, b: Pt): Pt {
+    return { x: a.x - b.x, y: a.y - b.y };
+}
+
+export function vAdd(a: Pt, b: Pt): Pt {
+    return { x: a.x + b.x, y: a.y + b.y };
+}
+
+export function vMul(a: Pt, s: number): Pt {
+    return { x: a.x * s, y: a.y * s };
+}
+
+export function vLen(a: Pt): number {
+    return Math.hypot(a.x, a.y);
+}
+
+export function vNorm(a: Pt): Pt {
+    const l = vLen(a);
+    if (l === 0) return { x: 1, y: 0 };
+    return { x: a.x / l, y: a.y / l };
+}
+
+export function vPerp(a: Pt): Pt {
+    return { x: -a.y, y: a.x };
+}

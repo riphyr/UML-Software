@@ -1,5 +1,6 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type { UmlClass } from "../../model/uml";
+import { normalizeAttributeLine, normalizeMethodLine } from "../../model/uml";
 
 export function useInlineEdit(params: {
     selectedId: string | null;
@@ -65,7 +66,6 @@ export function useInlineEdit(params: {
         setEditingMethodIndex(null);
         setEditingAttrIndex(index);
 
-        // IMPORTANT: fallback si la ligne vient d'être ajoutée mais pas encore reflétée dans `classes`
         setEditBuffer(c.attributes[index] ?? "+ attr: Type");
     }
 
@@ -79,7 +79,6 @@ export function useInlineEdit(params: {
         setEditingAttrIndex(null);
         setEditingMethodIndex(index);
 
-        // idem fallback
         setEditBuffer(c.methods[index] ?? "+ method(): Return");
     }
 
@@ -87,12 +86,17 @@ export function useInlineEdit(params: {
         if (!selectedId) return;
         if (!isEditingLine) return;
 
+        // Normalisation stricte : même si l’utilisateur tape “n’importe quoi”,
+        // on resérialise en notation cohérente.
+        const normalizedAttr = editingAttrIndex !== null ? normalizeAttributeLine(editBuffer) : null;
+        const normalizedMethod = editingMethodIndex !== null ? normalizeMethodLine(editBuffer) : null;
+
         if (editingAttrIndex !== null) {
             const idx = editingAttrIndex;
             setClasses((cs) =>
                 cs.map((c) =>
                     c.id === selectedId
-                        ? { ...c, attributes: c.attributes.map((a, i) => (i === idx ? editBuffer : a)) }
+                        ? { ...c, attributes: c.attributes.map((a, i) => (i === idx ? (normalizedAttr ?? a) : a)) }
                         : c
                 )
             );
@@ -103,7 +107,7 @@ export function useInlineEdit(params: {
             setClasses((cs) =>
                 cs.map((c) =>
                     c.id === selectedId
-                        ? { ...c, methods: c.methods.map((m, i) => (i === idx ? editBuffer : m)) }
+                        ? { ...c, methods: c.methods.map((m, i) => (i === idx ? (normalizedMethod ?? m) : m)) }
                         : c
                 )
             );

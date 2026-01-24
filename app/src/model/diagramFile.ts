@@ -1,11 +1,12 @@
-import { normalizeSnapshot } from "./diagram";
+import type { DiagramSnapshot } from "./diagram";
+import { normalizeSnapshot, type DiagramSnapshotV2 } from "./diagram";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 
 const FILTERS = [{ name: "UML Diagram", extensions: ["json"] }];
 
 function normalizeDialogPath(p: string): string {
-    // iOS / certains environnements peuvent renvoyer file://...
+    // certains environnements peuvent renvoyer file://...
     if (p.startsWith("file://")) {
         const url = new URL(p);
         // Windows: pathname commence par /C:/...
@@ -15,7 +16,9 @@ function normalizeDialogPath(p: string): string {
     return p;
 }
 
-export async function exportSnapshotToJsonFile(snapshot: unknown): Promise<{ ok: true; path: string } | { ok: false; reason: string }> {
+export async function exportSnapshotToJsonFile(
+    snapshot: DiagramSnapshot
+): Promise<{ ok: true; path: string } | { ok: false; reason: string }> {
     const filePath = await save({
         title: "Exporter le diagramme",
         filters: FILTERS,
@@ -25,15 +28,17 @@ export async function exportSnapshotToJsonFile(snapshot: unknown): Promise<{ ok:
     if (!filePath) return { ok: false, reason: "cancel" };
 
     const path = normalizeDialogPath(filePath);
-    const json = JSON.stringify(snapshot, null, 2);
 
-    // IMPORTANT: create: true -> autorise la création du fichier :contentReference[oaicite:4]{index=4}
+    // export toujours normalisé (v2, relations=[], kinds normalisés, etc.)
+    const norm = normalizeSnapshot(snapshot);
+    const json = JSON.stringify(norm, null, 2);
+
     await writeTextFile(path, json, { create: true });
 
     return { ok: true, path };
 }
 
-export async function importSnapshotFromJsonFile(): Promise<ReturnType<typeof normalizeSnapshot> | null> {
+export async function importSnapshotFromJsonFile(): Promise<DiagramSnapshotV2 | null> {
     const selected = await open({
         title: "Importer un diagramme",
         multiple: false,
@@ -45,7 +50,7 @@ export async function importSnapshotFromJsonFile(): Promise<ReturnType<typeof no
 
     const path = normalizeDialogPath(selected);
     const raw = await readTextFile(path);
-
     const parsed = JSON.parse(raw) as unknown;
+
     return normalizeSnapshot(parsed as any);
 }
