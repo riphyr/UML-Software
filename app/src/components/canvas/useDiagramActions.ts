@@ -1,6 +1,6 @@
 import type { UmlClass } from "../../model/uml";
 import type { NodeView } from "../../model/view";
-import type { UmlRelation } from "../../model/relation";
+import type { Cardinality, UmlRelation } from "../../model/relation";
 import { makeControlPointsWithCount } from "../relations/routingUtils";
 
 import type { ContextAction } from "../contextmenu/types";
@@ -224,7 +224,7 @@ export function useDiagramActions(args: {
     function setRelationKindOnSelected(kind: UmlRelation["kind"]) {
         if (!selectedRelationId) return;
         undo.pushSnapshot();
-        setRelations(relations.map((r) => (r.id === selectedRelationId ? { ...r, kind } : r)));
+        setRelations((prev) => prev.map((r) => (r.id === selectedRelationId ? { ...r, kind } : r)));
     }
 
     function editSelectedRelationLabel() {
@@ -237,7 +237,7 @@ export function useDiagramActions(args: {
         if (next === null) return;
 
         undo.pushSnapshot();
-        setRelations(relations.map((x) => (x.id === selectedRelationId ? { ...x, label: next } : x)));
+        setRelations((prev) => prev.map((x) => (x.id === selectedRelationId ? { ...x, label: next } : x)));
     }
 
     function onContextAction(a: ContextAction) {
@@ -429,7 +429,7 @@ export function useDiagramActions(args: {
     function setRelationLabelOnSelected(label: string) {
         if (!selectedRelationId) return;
         undo.pushSnapshot();
-        setRelations(relations.map((r) => (r.id === selectedRelationId ? { ...r, label } : r)));
+        setRelations((prev) => prev.map((r) => (r.id === selectedRelationId ? { ...r, label } : r)));
     }
 
     function swapRelationDirectionOnSelected() {
@@ -444,22 +444,46 @@ export function useDiagramActions(args: {
             prev.map((r) => {
                 if (r.id !== r0.id) return r;
 
-                // Swap endpoints + ports/locks.
-                // Pour garder le même tracé en mode manuel, on inverse aussi l'ordre des controlPoints.
                 const cps = r.controlPoints ? [...r.controlPoints].reverse() : r.controlPoints;
 
                 return {
                     ...r,
+
+                    // endpoints
                     fromId: r.toId,
                     toId: r.fromId,
 
+                    // ports
                     fromPort: r.toPort,
                     toPort: r.fromPort,
-
                     fromPortLocked: r.toPortLocked,
                     toPortLocked: r.fromPortLocked,
 
+                    // cardinalité/ordered (par extrémité)
+                    fromCardinality: r.toCardinality,
+                    toCardinality: r.fromCardinality,
+                    fromOrdered: r.toOrdered,
+                    toOrdered: r.fromOrdered,
+
+                    // garder la forme du tracé en manuel
                     controlPoints: cps,
+                };
+            })
+        );
+    }
+
+    function setRelationCardinalityOnSelected(args: { fromCardinality: Cardinality; toCardinality: Cardinality }) {
+        if (!selectedRelationId) return;
+
+        undo.pushSnapshot();
+
+        setRelations((prev) =>
+            prev.map((r) => {
+                if (r.id !== selectedRelationId) return r;
+                return {
+                    ...r,
+                    fromCardinality: args.fromCardinality,
+                    toCardinality: args.toCardinality,
                 };
             })
         );
@@ -485,8 +509,8 @@ export function useDiagramActions(args: {
                 if (r.id !== r0.id) return r;
                 return {
                     ...r,
-                    routingMode: "manual",   // <-- indispensable : sinon RelationLayer masque les waypoints
-                    controlPoints: cps,      // cps.length >= 2
+                    routingMode: "manual", // indispensable : sinon RelationLayer masque les waypoints
+                    controlPoints: cps, // cps.length >= 2
                 };
             })
         );
@@ -523,8 +547,9 @@ export function useDiagramActions(args: {
 
         setRelationKindOnSelected,
         setRelationLabelOnSelected,
-        setRelationWaypointCountOnSelected,
         swapRelationDirectionOnSelected,
+        setRelationCardinalityOnSelected,
+        setRelationWaypointCountOnSelected,
 
         editSelectedRelationLabel,
         applySnapshot,

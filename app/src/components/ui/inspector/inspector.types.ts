@@ -1,5 +1,5 @@
 import type { UmlClass } from "../../../model/uml";
-import type { RelationKind, UmlRelation } from "../../../model/relation";
+import type { RelationKind, UmlRelation, Cardinality } from "../../../model/relation";
 
 export type InspectorActions = {
     // class
@@ -14,8 +14,11 @@ export type InspectorActions = {
     // swap from/to (inverse la direction visuelle / sémantique)
     swapRelationDirectionOnSelected: () => void;
 
-    // NEW: waypoints (controlPoints) count (0 = straight)
+    // waypoints (controlPoints) count
     setRelationWaypointCountOnSelected: (count: number) => void;
+
+    // cardinality (sans ordered)
+    setRelationCardinalityOnSelected: (args: { fromCardinality: Cardinality; toCardinality: Cardinality }) => void;
 };
 
 export type InspectorProps = {

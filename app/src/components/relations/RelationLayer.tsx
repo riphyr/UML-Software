@@ -38,7 +38,6 @@ type Props = {
 type Side = PortSide;
 
 const PORT_OFFSET = 14;
-const LABEL_OFFSET = 10;
 
 // Hitboxes
 const RELATION_HIT_STROKE = 12;
@@ -48,6 +47,16 @@ const ENDPOINT_HIT_R = 12;
 
 // Visible handles (quand sélectionné)
 const ENDPOINT_VIS_R = 5;
+
+// Label layout
+const LABEL_OFFSET = 14; // + éloigné pour éviter de tomber "dans" la ligne
+
+// Cardinality layout (plus éloigné pour éviter flèches / coudes)
+const CARD_PERP_OFFSET = 22;
+const CARD_ALONG_OFFSET = 18;
+
+// Cardinality extra padding to avoid markers
+const CARD_MARKER_PAD_EXTRA = 8;
 
 function center(v: NodeView): RelationPoint {
     return { x: v.x + v.width / 2, y: v.y + v.height / 2 };
@@ -153,6 +162,64 @@ function renderMarker(kind: UmlRelation["kind"], pts: RelationPoint[]) {
     return null;
 }
 
+function cardinalityText(card: string | undefined) {
+    const c = (card ?? "").trim();
+    return c.length ? c : "";
+}
+
+/**
+ * Place un texte près d'une extrémité, mais:
+ * - plus loin de la ligne (perp)
+ * - plus loin du marker (extraAlong)
+ *
+ * end: point d'extrémité
+ * next: point voisin (direction du segment sortant depuis end)
+ */
+function cardPosAtEnd(end: RelationPoint, next: RelationPoint, extraAlong = 0) {
+    const e = toPt(end);
+    const n = toPt(next);
+
+    const u = vNorm(vSub(n, e)); // direction sortante depuis l'end
+    const p = vPerp(u);
+
+    const along = CARD_ALONG_OFFSET + extraAlong;
+    const pos = vAdd(vAdd(e, vMul(u, along)), vMul(p, CARD_PERP_OFFSET));
+    return { x: pos.x, y: pos.y };
+}
+
+/**
+ * Place le label "à côté" du segment le plus long :
+ * - segment horizontal => au-dessus (offset Y)
+ * - segment vertical => à droite (offset X)
+ */
+function labelSpecForSegment(p0: RelationPoint, p1: RelationPoint) {
+    const mid = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+    const dx = p1.x - p0.x;
+    const dy = p1.y - p0.y;
+
+    // marge supplémentaire pour que le texte ne "revienne" jamais sur la ligne
+    const GAP = LABEL_OFFSET + 6;
+
+    if (Math.abs(dx) >= Math.abs(dy)) {
+        // segment plutôt horizontal -> on place AU-DESSUS et on centre horizontalement
+        return {
+            x: mid.x,
+            y: mid.y - GAP,
+            textAnchor: "middle" as const,
+            dominantBaseline: "middle" as const,
+        };
+    }
+
+    // segment plutôt vertical -> on place à DROITE et surtout on ancre au début
+    // (sinon textAnchor="middle" fait la moitié du label repasser sur la ligne)
+    return {
+        x: mid.x + GAP,
+        y: mid.y,
+        textAnchor: "start" as const,
+        dominantBaseline: "middle" as const,
+    };
+}
+
 export default function RelationLayer(p: Props) {
     const {
         relations,
@@ -206,11 +273,9 @@ export default function RelationLayer(p: Props) {
                     mode === "manual" ? (hasUser ? (r.controlPoints ?? []) : autoInner) : autoInner;
 
                 if (routing && routing.isActive && routing.relationId === r.id) {
-                    if (routing.kind === "from") {
-                        a = routing.draft;
-                    } else if (routing.kind === "to") {
-                        b = routing.draft;
-                    } else if (routing.kind === "waypoint") {
+                    if (routing.kind === "from") a = routing.draft;
+                    else if (routing.kind === "to") b = routing.draft;
+                    else if (routing.kind === "waypoint") {
                         const draftInner = getControls?.(r.id);
                         if (draftInner && draftInner.length > 0) inner = draftInner;
                     }
@@ -218,7 +283,14 @@ export default function RelationLayer(p: Props) {
 
                 const pts: RelationPoint[] = [a, ...inner, b];
 
-                let labelPos: RelationPoint | null = null;
+                const spec = getRelationRenderSpec(r.kind);
+                const markerPad = spec.marker.type === "none" ? 0 : spec.marker.pad;
+
+                // label (segment le plus long, et placement selon orientation)
+                let labelSpec:
+                    | { x: number; y: number; textAnchor: "middle" | "start"; dominantBaseline: "middle" }
+                    | null = null;
+
                 if (r.label && pts.length >= 2) {
                     let bestI = 0;
                     let bestD = -1;
@@ -229,48 +301,50 @@ export default function RelationLayer(p: Props) {
                             bestI = i;
                         }
                     }
-                    const p0 = pts[bestI];
-                    const p1 = pts[bestI + 1];
-                    const mid = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
-                    labelPos = { x: mid.x, y: mid.y - LABEL_OFFSET };
+                    labelSpec = labelSpecForSegment(pts[bestI], pts[bestI + 1]);
                 }
 
-                const spec = getRelationRenderSpec(r.kind);
-                const pad = spec.marker.type === "none" ? 0 : spec.marker.pad;
-
+                // path visible (raccourci avant le marker)
                 let ptsVis = pts;
-                if (pad > 0 && pts.length >= 2) {
-                    const endAdj = markerAdjustedEnd(pts, pad);
+                if (markerPad > 0 && pts.length >= 2) {
+                    const endAdj = markerAdjustedEnd(pts, markerPad);
                     ptsVis = [...pts.slice(0, -1), endAdj];
                 }
 
-                return { r, pts, ptsVis, labelPos, mode, inner };
+                // cardinalities (plus loin, et "to" recule encore pour éviter la flèche)
+                const fromText = cardinalityText(r.fromCardinality);
+                const toText = cardinalityText(r.toCardinality);
+
+                const fromPos = fromText && pts.length >= 2 ? cardPosAtEnd(pts[0], pts[1], 0) : null;
+
+                // Sur l'extrémité "to", on ajoute un extraAlong basé sur le marker.
+                // Comme l'appel utilise (end=last, next=prev), "along" part vers l'intérieur donc éloigne le texte du marker.
+                const toExtraAlong = markerPad > 0 ? markerPad + CARD_MARKER_PAD_EXTRA : 0;
+                const toPos =
+                    toText && pts.length >= 2 ? cardPosAtEnd(pts[pts.length - 1], pts[pts.length - 2], toExtraAlong) : null;
+
+                return { r, pts, ptsVis, labelSpec, mode, inner, fromText, toText, fromPos, toPos };
             })
-            .filter(Boolean) as {
-            r: UmlRelation;
-            pts: RelationPoint[];
-            ptsVis: RelationPoint[];
-            labelPos: RelationPoint | null;
-            mode: "auto" | "manual";
-            inner: RelationPoint[];
-        }[];
+            .filter(Boolean) as any[];
     }, [relations, viewsById, portLayout, getControls, routing, dragKey]);
 
     return (
         <g>
-            {paths.map(({ r, pts, ptsVis, labelPos, mode, inner }) => {
+            {paths.map((x) => {
+                const { r, pts, ptsVis, labelSpec, mode, inner, fromText, toText, fromPos, toPos } = x;
+
                 const selected = selectedRelationId === r.id || !!selectedRelationIds?.includes(r.id);
                 const activeDrag = !!(routing && routing.isActive && routing.relationId === r.id);
                 const showHandles = selected || activeDrag;
 
-                const dHit = pts.reduce((acc, p, i) => {
+                const dHit = pts.reduce((acc: string, pt: RelationPoint, i: number) => {
                     const cmd = i === 0 ? "M" : "L";
-                    return acc + `${cmd}${p.x},${p.y} `;
+                    return acc + `${cmd}${pt.x},${pt.y} `;
                 }, "");
 
-                const dVis = ptsVis.reduce((acc, p, i) => {
+                const dVis = ptsVis.reduce((acc: string, pt: RelationPoint, i: number) => {
                     const cmd = i === 0 ? "M" : "L";
-                    return acc + `${cmd}${p.x},${p.y} `;
+                    return acc + `${cmd}${pt.x},${pt.y} `;
                 }, "");
 
                 const spec = getRelationRenderSpec(r.kind);
@@ -283,7 +357,6 @@ export default function RelationLayer(p: Props) {
                             stroke="transparent"
                             strokeWidth={RELATION_HIT_STROKE}
                             style={{ pointerEvents: "stroke" }}
-                            onMouseDown={(e) => onSelectRelation(r.id, e)}
                         />
 
                         <path
@@ -297,7 +370,30 @@ export default function RelationLayer(p: Props) {
 
                         {renderMarker(r.kind, pts)}
 
-                        {/* endpoints : hitbox toujours, visible seulement si showHandles */}
+                        {fromPos && (
+                            <text
+                                x={fromPos.x}
+                                y={fromPos.y}
+                                textAnchor="middle"
+                                fill="currentColor"
+                                style={{ userSelect: "none" as const, pointerEvents: "none", fontSize: 12 }}
+                            >
+                                {fromText}
+                            </text>
+                        )}
+
+                        {toPos && (
+                            <text
+                                x={toPos.x}
+                                y={toPos.y}
+                                textAnchor="middle"
+                                fill="currentColor"
+                                style={{ userSelect: "none" as const, pointerEvents: "none", fontSize: 12 }}
+                            >
+                                {toText}
+                            </text>
+                        )}
+
                         {pts.length >= 2 && (
                             <>
                                 <circle
@@ -352,9 +448,8 @@ export default function RelationLayer(p: Props) {
                             </>
                         )}
 
-                        {/* waypoints : hitbox toujours, visible seulement si showHandles */}
                         {mode === "manual" &&
-                            inner.map((wp, i) => (
+                            inner.map((wp: RelationPoint, i: number) => (
                                 <g key={i}>
                                     <circle
                                         cx={wp.x}
@@ -379,11 +474,13 @@ export default function RelationLayer(p: Props) {
                                 </g>
                             ))}
 
-                        {labelPos && (
+                        {labelSpec && (
                             <text
-                                x={labelPos.x}
-                                y={labelPos.y}
-                                textAnchor="middle"
+                                x={labelSpec.x}
+                                y={labelSpec.y}
+                                textAnchor={labelSpec.textAnchor}
+                                dominantBaseline={labelSpec.dominantBaseline}
+                                fill="currentColor"
                                 style={{ userSelect: "none" as const, pointerEvents: "none" }}
                             >
                                 {r.label}

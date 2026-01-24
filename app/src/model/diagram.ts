@@ -2,7 +2,7 @@ import type { UmlClass } from "./uml";
 import type { NodeView } from "./view";
 import type { ViewsById } from "./views";
 import type { UmlRelation } from "./relation";
-import { normalizeRelationKind } from "./relation";
+import { normalizeCardinality, normalizeRelationKind } from "./relation";
 
 export type DiagramSnapshotV1 = {
     version: 1;
@@ -19,8 +19,11 @@ export type DiagramSnapshotV2 = {
 
 export type DiagramSnapshot = DiagramSnapshotV1 | DiagramSnapshotV2;
 
-// rétro-compatible : makeSnapshot(classes, viewsById) marche encore
-export function makeSnapshot(classes: UmlClass[], viewsById: ViewsById, relations: UmlRelation[] = []): DiagramSnapshotV2 {
+export function makeSnapshot(
+    classes: UmlClass[],
+    viewsById: ViewsById,
+    relations: UmlRelation[] = []
+): DiagramSnapshotV2 {
     return { version: 2, classes, viewsById, relations };
 }
 
@@ -39,10 +42,7 @@ export function isSnapshotV2(x: unknown): x is DiagramSnapshotV2 {
     if (o.version !== 2) return false;
     if (!Array.isArray(o.classes)) return false;
     if (!o.viewsById || typeof o.viewsById !== "object") return false;
-
-    // IMPORTANT: compat — certains v2 historiques/imports peuvent ne pas avoir "relations"
     if (o.relations !== undefined && !Array.isArray(o.relations)) return false;
-
     return true;
 }
 
@@ -51,7 +51,7 @@ function normalizeViews(classes: UmlClass[], viewsById: ViewsById): ViewsById {
 
     const nextViews: ViewsById = {};
     for (const id of ids) {
-        const v = (viewsById as any)[id] as NodeView | undefined;
+        const v = (viewsById as any)?.[id];
 
         const validBox =
             v &&
@@ -66,9 +66,10 @@ function normalizeViews(classes: UmlClass[], viewsById: ViewsById): ViewsById {
         if (validBox) {
             nextViews[id] = { ...v, sizeMode };
         } else {
-            nextViews[id] = { id, x: 100, y: 100, width: 260, height: 150, sizeMode: "auto" };
+            nextViews[id] = { id, x: 0, y: 0, width: 220, height: 140, sizeMode };
         }
     }
+
     return nextViews;
 }
 
@@ -88,51 +89,50 @@ function normalizeRelations(classes: UmlClass[], relations: UmlRelation[]): UmlR
             const kind = normalizeRelationKind(o.kind);
 
             const cps = Array.isArray(o.controlPoints)
-                ? o.controlPoints.filter((p: any) => p && typeof p.x === "number" && typeof p.y === "number")
+                ? o.controlPoints
+                    .map((p: any) => {
+                        if (!p || typeof p !== "object") return null;
+                        if (typeof p.x !== "number" || typeof p.y !== "number") return null;
+                        return { x: p.x, y: p.y };
+                    })
+                    .filter(Boolean)
                 : undefined;
 
             const routingMode =
                 o.routingMode === "manual" ? "manual" : o.routingMode === "auto" ? "auto" : undefined;
 
-            const next: UmlRelation = {
+            const fromOrdered = typeof o.fromOrdered === "boolean" ? o.fromOrdered : undefined;
+            const toOrdered = typeof o.toOrdered === "boolean" ? o.toOrdered : undefined;
+
+            return {
                 ...o,
                 kind,
                 controlPoints: cps,
                 routingMode,
-            };
-
-            return next;
+                fromCardinality: normalizeCardinality(o.fromCardinality),
+                toCardinality: normalizeCardinality(o.toCardinality),
+                fromOrdered,
+                toOrdered,
+            } as UmlRelation;
         })
         .filter(Boolean) as UmlRelation[];
 }
 
 export function normalizeSnapshot(s: DiagramSnapshot): DiagramSnapshotV2 {
-    if (isSnapshotV1(s)) {
-        const views = normalizeViews(s.classes ?? [], s.viewsById ?? {});
-        return {
-            version: 2,
-            classes: s.classes ?? [],
-            viewsById: views,
-            relations: [],
-        };
-    }
-
     if (isSnapshotV2(s)) {
-        const classes = s.classes ?? [];
-        const views = normalizeViews(classes, s.viewsById ?? {});
-        const relations = normalizeRelations(classes, (s as any).relations ?? []);
         return {
             version: 2,
-            classes,
-            viewsById: views,
-            relations,
+            classes: s.classes,
+            viewsById: normalizeViews(s.classes, s.viewsById),
+            relations: normalizeRelations(s.classes, s.relations ?? []),
         };
     }
 
+    // V1 -> V2
     return {
         version: 2,
-        classes: [],
-        viewsById: {},
+        classes: s.classes,
+        viewsById: normalizeViews(s.classes, s.viewsById),
         relations: [],
     };
 }

@@ -5,7 +5,7 @@ export type RelationKind =
     | "depend"
     | "agg"
     | "comp"
-    // legacy (anciens diagrammes)
+    // legacy
     | "herit";
 
 export type PortSide = "N" | "E" | "S" | "W";
@@ -14,14 +14,37 @@ export type RelationPoint = { x: number; y: number };
 
 export type RelationRoutingMode = "auto" | "manual";
 
+export type Cardinality = "" | "1" | "0..1" | "0..*" | "1..*";
+
+export function normalizeCardinality(x: unknown): Cardinality {
+    if (x === "" || x === "1" || x === "0..1" || x === "0..*" || x === "1..*") return x;
+    return "";
+}
+
+export function normalizeRelationKind(x: unknown): RelationKind {
+    const k = typeof x === "string" ? x : "";
+    switch (k) {
+        case "inherit":
+        case "realize":
+        case "depend":
+        case "agg":
+        case "comp":
+        case "assoc":
+            return k;
+        // legacy
+        case "herit":
+            return "inherit";
+        default:
+            return "assoc";
+    }
+}
+
 export type UmlRelation = {
     id: string;
     fromId: string;
     toId: string;
 
-    // NOTE: "herit" accepté pour compat, normalisé en "inherit" au load.
     kind: RelationKind;
-
     label?: string;
 
     fromPort?: PortSide;
@@ -30,53 +53,37 @@ export type UmlRelation = {
     fromPortLocked?: boolean;
     toPortLocked?: boolean;
 
-    // points de contrôle (coudes)
     controlPoints?: RelationPoint[];
-
-    // Routage
-    // - "auto"   : pas de controlPoints => route orthogonal auto
-    // - "manual" : controlPoints fournis par l'utilisateur (peut être vide)
     routingMode?: RelationRoutingMode;
+
+    // Cardinalité par extrémité
+    fromCardinality?: Cardinality;
+    toCardinality?: Cardinality;
+
+    // Indicateur UML "{ordered}" par extrémité
+    fromOrdered?: boolean;
+    toOrdered?: boolean;
 };
 
-export type RelationMarker =
-    | { type: "none" }
-    | { type: "triangle-hollow"; pad: number; len: number; width: number }
-    | { type: "arrow-open"; pad: number; len: number; width: number }
-    | { type: "diamond-hollow"; pad: number; len: number; width: number }
-    | { type: "diamond-filled"; pad: number; len: number; width: number };
+const ARROW_LEN = 14;
+const ARROW_W = 12;
 
-export type RelationRenderSpec = {
+const TRI_LEN = 16;
+const TRI_W = 14;
+
+const DIA_LEN = 16;
+const DIA_W = 12;
+
+export function getRelationRenderSpec(kind: RelationKind): {
     dashed: boolean;
-    marker: RelationMarker;
-};
-
-export function normalizeRelationKind(k: unknown): Exclude<RelationKind, "herit"> {
-    const s = typeof k === "string" ? k : "";
-    if (s === "herit") return "inherit";
-    if (s === "inherit") return "inherit";
-    if (s === "assoc") return "assoc";
-    if (s === "realize") return "realize";
-    if (s === "depend") return "depend";
-    if (s === "agg") return "agg";
-    if (s === "comp") return "comp";
-    return "assoc";
-}
-
-export function getRelationRenderSpec(kind: RelationKind): RelationRenderSpec {
-    const k = kind === "herit" ? "inherit" : kind;
-
-    // tailles visuelles (px)
-    const TRI_LEN = 16;
-    const TRI_W = 14;
-
-    const ARR_LEN = 14;
-    const ARR_W = 12;
-
-    const DIA_LEN = 18;
-    const DIA_W = 14;
-
-    switch (k) {
+    marker:
+        | { type: "none" }
+        | { type: "arrow-open"; pad: number; len: number; width: number }
+        | { type: "triangle-hollow"; pad: number; len: number; width: number }
+        | { type: "diamond-hollow"; pad: number; len: number; width: number }
+        | { type: "diamond-filled"; pad: number; len: number; width: number };
+} {
+    switch (kind) {
         case "inherit":
             return {
                 dashed: false,
@@ -90,7 +97,7 @@ export function getRelationRenderSpec(kind: RelationKind): RelationRenderSpec {
         case "depend":
             return {
                 dashed: true,
-                marker: { type: "arrow-open", pad: ARR_LEN, len: ARR_LEN, width: ARR_W },
+                marker: { type: "arrow-open", pad: ARROW_LEN, len: ARROW_LEN, width: ARROW_W },
             };
         case "agg":
             return {

@@ -39,6 +39,7 @@ export default function Inspector(p: InspectorProps & { getClassNameById: (id: s
             toName={p.getClassNameById(r.toId)}
             onSetKind={p.actions.setRelationKindOnSelected}
             onSetLabel={p.actions.setRelationLabelOnSelected}
+            onSetCardinality={p.actions.setRelationCardinalityOnSelected}
             onSwapDirection={p.actions.swapRelationDirectionOnSelected}
             onSetWaypointCount={p.actions.setRelationWaypointCountOnSelected}
             onDelete={p.actions.deleteSelected}

@@ -691,10 +691,13 @@ export default function DiagramCanvas() {
                     getClassNameById={getClassNameById}
                     actions={{
                         applyClassEdits: actions.applyClassEdits,
+
                         setRelationKindOnSelected: actions.setRelationKindOnSelected,
                         setRelationLabelOnSelected: actions.setRelationLabelOnSelected,
+                        setRelationCardinalityOnSelected: actions.setRelationCardinalityOnSelected, // <- AJOUT
                         setRelationWaypointCountOnSelected: actions.setRelationWaypointCountOnSelected,
                         swapRelationDirectionOnSelected: actions.swapRelationDirectionOnSelected,
+
                         deleteSelected: actions.deleteSelected,
                         duplicateSelected: actions.duplicateSelected,
                     }}
