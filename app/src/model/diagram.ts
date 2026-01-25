@@ -46,6 +46,26 @@ export function isSnapshotV2(x: unknown): x is DiagramSnapshotV2 {
     return true;
 }
 
+function normalizeClasses(classes: UmlClass[]): UmlClass[] {
+    return (classes ?? [])
+        .map((c) => {
+            if (!c || typeof c !== "object") return null;
+            const o = c as any;
+            if (typeof o.id !== "string") return null;
+            const name = typeof o.name === "string" ? o.name : "ClassName";
+
+            const stereotype = typeof o.stereotype === "string" ? o.stereotype : "";
+            const rawKind = typeof o.kind === "string" ? o.kind : "class";
+            const kind: UmlClass["kind"] = rawKind === "abstract" || rawKind === "interface" ? rawKind : "class";
+
+            const attributes = Array.isArray(o.attributes) ? o.attributes.filter((x: any) => typeof x === "string") : [];
+            const methods = Array.isArray(o.methods) ? o.methods.filter((x: any) => typeof x === "string") : [];
+
+            return { id: o.id, name, stereotype, kind, attributes, methods } as UmlClass;
+        })
+        .filter(Boolean) as UmlClass[];
+}
+
 function normalizeViews(classes: UmlClass[], viewsById: ViewsById): ViewsById {
     const ids = new Set<string>(classes.map((c) => c.id));
 
@@ -120,19 +140,21 @@ function normalizeRelations(classes: UmlClass[], relations: UmlRelation[]): UmlR
 
 export function normalizeSnapshot(s: DiagramSnapshot): DiagramSnapshotV2 {
     if (isSnapshotV2(s)) {
+        const classes = normalizeClasses(s.classes);
         return {
             version: 2,
-            classes: s.classes,
-            viewsById: normalizeViews(s.classes, s.viewsById),
-            relations: normalizeRelations(s.classes, s.relations ?? []),
+            classes,
+            viewsById: normalizeViews(classes, s.viewsById),
+            relations: normalizeRelations(classes, s.relations ?? []),
         };
     }
 
     // V1 -> V2
+    const classes = normalizeClasses(s.classes);
     return {
         version: 2,
-        classes: s.classes,
-        viewsById: normalizeViews(s.classes, s.viewsById),
+        classes,
+        viewsById: normalizeViews(classes, s.viewsById),
         relations: [],
     };
 }

@@ -30,6 +30,8 @@ import { useDiagramState } from "./canvas/useDiagramState";
 import { useDiagramActions } from "./canvas/useDiagramActions";
 import { useDiagramInput } from "./canvas/useDiagramInput";
 
+import { exportDiagramPng } from "../utils/exportDiagramPng";
+
 import { buildPortLayout, getEndpointPortPoint } from "./relations/ports";
 
 export default function DiagramCanvas() {
@@ -221,6 +223,16 @@ export default function DiagramCanvas() {
                 importFile={() => {
                     void persistence.importFile();
                 }}
+                exportPng={() => {
+                    if (!svgRef.current) return;
+                    void exportDiagramPng({
+                        svgEl: svgRef.current,
+                        viewsById: state.viewsById,
+                        filename: "uml-diagram",
+                        padding: 24,
+                        pixelRatio: 3,
+                    });
+                }}
             />
 
             <svg
@@ -282,7 +294,7 @@ export default function DiagramCanvas() {
                     cameraApi.onWheel(e);
                 }}
             >
-                <rect
+                <rect data-export="ignore"
                     x="0"
                     y="0"
                     width="100%"
@@ -413,7 +425,7 @@ export default function DiagramCanvas() {
                     />
 
                     {(input as any).boxRect && (
-                        <rect
+                        <rect data-export="ignore"
                             x={(input as any).boxRect.x}
                             y={(input as any).boxRect.y}
                             width={(input as any).boxRect.w}
@@ -427,7 +439,7 @@ export default function DiagramCanvas() {
                     )}
 
                     {relApi.previewLine && (
-                        <line
+                        <line data-export="ignore"
                             x1={relApi.previewLine.a.x}
                             y1={relApi.previewLine.a.y}
                             x2={relApi.previewLine.b.x}
@@ -440,7 +452,7 @@ export default function DiagramCanvas() {
                     )}
 
                     {relReconnectApi.previewLine && (
-                        <line
+                        <line data-export="ignore"
                             x1={relReconnectApi.previewLine.a.x}
                             y1={relReconnectApi.previewLine.a.y}
                             x2={relReconnectApi.previewLine.b.x}
@@ -478,6 +490,8 @@ export default function DiagramCanvas() {
                                 width={v.width}
                                 height={v.height}
                                 name={displayName}
+                                stereotype={c.stereotype ?? ""}
+                                kind={(c.kind ?? "class") as any}
                                 attributes={displayAttributes}
                                 methods={displayMethods}
                                 selected={isSelected}

@@ -7,6 +7,9 @@ import { buildPortLayout, getEndpointPortPoint } from "./ports";
 import { makeControlPointsWithCount } from "./routingUtils";
 import { vAdd, vMul, vNorm, vPerp, vSub, type Pt } from "../../utils/geom";
 
+// Label font
+const LABEL_FONT_SIZE = 12; // <- baisse ici (ex: 9, 10, 11)
+
 type Props = {
     relations: UmlRelation[];
     viewsById: ViewsById;
@@ -481,7 +484,11 @@ export default function RelationLayer(p: Props) {
                                 textAnchor={labelSpec.textAnchor}
                                 dominantBaseline={labelSpec.dominantBaseline}
                                 fill="currentColor"
-                                style={{ userSelect: "none" as const, pointerEvents: "none" }}
+                                style={{
+                                    userSelect: "none" as const,
+                                    pointerEvents: "none",
+                                    fontSize: LABEL_FONT_SIZE,
+                                }}
                             >
                                 {r.label}
                             </text>

@@ -53,6 +53,8 @@ export function useDiagramState(): DiagramStateApi {
         {
             id: "class-1",
             name: "ClassName",
+            kind: "class",
+            stereotype: "",
             attributes: ["+ id: int", "- title: string"],
             methods: ["+ save(): void", "+ load(path: string): boolean"],
         },
@@ -103,7 +105,7 @@ export function useDiagramState(): DiagramStateApi {
 
         // auto: select -> multiSelect
         if (mode === "select" && total >= 2) {
-            setMultiSelectArmed(false);      // IMPORTANT: auto, pas manuel
+            setMultiSelectArmed(false); // IMPORTANT: auto, pas manuel
             setMode("multiSelect");
             return;
         }
@@ -119,10 +121,7 @@ export function useDiagramState(): DiagramStateApi {
         [classes, selectedId]
     );
 
-    const selectedView = useMemo(
-        () => (selectedId ? viewsById[selectedId] ?? null : null),
-        [viewsById, selectedId]
-    );
+    const selectedView = useMemo(() => (selectedId ? viewsById[selectedId] ?? null : null), [viewsById, selectedId]);
 
     return {
         classes,

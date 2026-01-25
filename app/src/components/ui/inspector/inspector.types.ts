@@ -3,7 +3,16 @@ import type { RelationKind, UmlRelation, Cardinality } from "../../../model/rela
 
 export type InspectorActions = {
     // class
-    applyClassEdits: (id: string, next: { name: string; attributes: string[]; methods: string[] }) => void;
+    applyClassEdits: (
+        id: string,
+        next: {
+            name: string;
+            stereotype: string;
+            kind: "class" | "abstract" | "interface";
+            attributes: string[];
+            methods: string[];
+        }
+    ) => void;
     duplicateSelected: () => void;
     deleteSelected: () => void;
 

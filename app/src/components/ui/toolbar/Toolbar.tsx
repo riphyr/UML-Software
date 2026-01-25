@@ -16,6 +16,8 @@ export default function Toolbar(p: {
     load: () => void;
     exportFile: () => void;
     importFile: () => void;
+
+    exportPng: () => void; // AJOUT
 }) {
     return (
         <div
@@ -38,7 +40,11 @@ export default function Toolbar(p: {
                 <ToolbarButton active={p.mode === "select"} title="Select (V)" onClick={() => p.setMode("select")}>
                     Select
                 </ToolbarButton>
-                <ToolbarButton active={p.mode === "multiSelect"} title="Multi Selection (M)" onClick={() => p.setMode("multiSelect")}>
+                <ToolbarButton
+                    active={p.mode === "multiSelect"}
+                    title="Multi Selection (M)"
+                    onClick={() => p.setMode("multiSelect")}
+                >
                     Multi-select
                 </ToolbarButton>
                 <ToolbarButton active={p.mode === "link"} title="Link (L)" onClick={() => p.setMode("link")}>
@@ -79,17 +85,33 @@ export default function Toolbar(p: {
             <div style={{ width: 1, height: 28, background: "#2a3040" }} />
 
             <div style={{ display: "flex", gap: 8 }}>
-                <ToolbarButton title="Undo (Ctrl+Z)" onClick={p.undo}>Undo</ToolbarButton>
-                <ToolbarButton title="Redo (Ctrl+Y / Ctrl+Shift+Z)" onClick={p.redo}>Redo</ToolbarButton>
+                <ToolbarButton title="Undo (Ctrl+Z)" onClick={p.undo}>
+                    Undo
+                </ToolbarButton>
+                <ToolbarButton title="Redo (Ctrl+Y / Ctrl+Shift+Z)" onClick={p.redo}>
+                    Redo
+                </ToolbarButton>
             </div>
 
             <div style={{ width: 1, height: 28, background: "#2a3040" }} />
 
             <div style={{ display: "flex", gap: 8 }}>
-                <ToolbarButton title="Save" onClick={p.save}>Save</ToolbarButton>
-                <ToolbarButton title="Load" onClick={p.load}>Load</ToolbarButton>
-                <ToolbarButton title="Export" onClick={p.exportFile}>Export</ToolbarButton>
-                <ToolbarButton title="Import" onClick={p.importFile}>Import</ToolbarButton>
+                <ToolbarButton title="Save" onClick={p.save}>
+                    Save
+                </ToolbarButton>
+                <ToolbarButton title="Load" onClick={p.load}>
+                    Load
+                </ToolbarButton>
+                <ToolbarButton title="Export" onClick={p.exportFile}>
+                    Export
+                </ToolbarButton>
+                <ToolbarButton title="Import" onClick={p.importFile}>
+                    Import
+                </ToolbarButton>
+
+                <ToolbarButton title="Export image (PNG)" onClick={p.exportPng}>
+                    Export PNG
+                </ToolbarButton>
             </div>
         </div>
     );

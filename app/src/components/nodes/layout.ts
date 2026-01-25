@@ -1,4 +1,5 @@
-export const NODE_HEADER_HEIGHT = 28;
+// Header can contain an optional stereotype line + the class name.
+export const NODE_HEADER_HEIGHT = 40;
 export const NODE_LINE_HEIGHT = 18;
 export const NODE_ATTR_START_Y = NODE_HEADER_HEIGHT + 12;
 

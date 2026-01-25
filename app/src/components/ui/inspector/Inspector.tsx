@@ -24,7 +24,7 @@ export default function Inspector(p: InspectorProps & { getClassNameById: (id: s
         return (
             <ClassPanel
                 c={c}
-                onApply={(next) => p.actions.applyClassEdits(c.id, next)}
+                onApply={(next) => p.actions.applyClassEdits(c.id, next as any)}
                 onDelete={p.actions.deleteSelected}
                 onDuplicate={p.actions.duplicateSelected}
             />

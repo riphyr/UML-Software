@@ -49,5 +49,5 @@ export default function Grid({ width, height, scale, enabled = true, base = 50 }
         );
     }
 
-    return <g>{lines}</g>;
+    return <g data-export="ignore">{lines}</g>;
 }

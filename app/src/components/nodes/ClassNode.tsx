@@ -18,6 +18,11 @@ type Props = {
     height: number;
 
     name: string;
+
+    // Optional (pour header centré stéréotype/interface/abstract)
+    stereotype?: string;
+    kind?: "class" | "abstract" | "interface";
+
     attributes: string[];
     methods: string[];
 
@@ -57,6 +62,8 @@ export default function ClassNode({
                                       width,
                                       height,
                                       name,
+                                      stereotype,
+                                      kind = "class",
                                       attributes,
                                       methods,
                                       selected,
@@ -87,7 +94,6 @@ export default function ClassNode({
 
     const clipId = `clip-${x}-${y}`;
 
-    // IMPORTANT: plus de placeholders "fantômes"
     const attrs = attributes;
     const mets = methods;
 
@@ -95,7 +101,7 @@ export default function ClassNode({
     const methodsSeparatorY = getMethodsSeparatorY(attrsCount);
     const methodsStartY = getMethodsStartY(attrsCount);
 
-    // Ports : positions en monde (décalées hors de la box)
+    // Ports (anchors) : positions en monde (décalées hors de la box)
     const PORT_OUT = 14;
     const ports: { side: PortSide; wx: number; wy: number; lx: number; ly: number }[] = [
         { side: "N", wx: x + width / 2, wy: y - PORT_OUT, lx: width / 2, ly: -PORT_OUT },
@@ -104,6 +110,7 @@ export default function ClassNode({
         { side: "W", wx: x - PORT_OUT, wy: y + height / 2, lx: -PORT_OUT, ly: height / 2 },
     ];
 
+    // Règle: un seul côté visible -> le plus proche; "hot" uniquement si proche du point exact.
     let hoverSide: PortSide | null = null;
     let bestSide: PortSide | null = null;
     let nearAny = false;
@@ -122,8 +129,8 @@ export default function ClassNode({
             }
         }
 
-        const NEAR_R = 30;
-        const HOVER_R = 14;
+        const NEAR_R = 30; // apparaît
+        const HOVER_R = 14; // interactif / “hot”
 
         if (bestD <= NEAR_R) {
             nearAny = true;
@@ -132,6 +139,7 @@ export default function ClassNode({
         }
     }
 
+    // pour l’API externe (hover highlight / cursor)
     const logicalSide: PortSide | null = showPorts && !editing && nearAny ? (bestSide ?? null) : null;
 
     // Lock toggle (NE) : visible uniquement quand la souris est proche
@@ -152,12 +160,22 @@ export default function ClassNode({
         onPortHover(logicalSide);
     }, [showPorts, onPortHover, logicalSide]);
 
+    // Header centré : stéréotype + nom centrés ; attrs/methods à gauche.
+    const rawStereo = (stereotype ?? "").trim();
+    const stereoLine =
+        rawStereo.length > 0 ? `<<${rawStereo}>>` : kind === "interface" ? "<<interface>>" : "";
+    const hasStereo = stereoLine.length > 0;
+
+    const centerX = width / 2;
+    const stereoY = 12;
+    const nameY = hasStereo ? 28 : NODE_HEADER_HEIGHT / 2;
+
     return (
         <g
             transform={`translate(${x}, ${y})`}
             onMouseEnter={() => onHoverStart?.()}
             onMouseLeave={() => onHoverEnd?.()}
-            onContextMenu={e => {
+            onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 onContextMenu?.(e);
@@ -169,29 +187,31 @@ export default function ClassNode({
                 </clipPath>
             </defs>
 
+            {/* Body */}
             <rect
                 width={width}
                 height={height}
                 rx={6}
                 fill="#1c2230"
-                onMouseDown={e => {
+                onMouseDown={(e) => {
                     if (editing) return;
                     onMouseDown?.(e);
                 }}
                 style={{ cursor: editing ? "default" : "move" }}
             />
 
+            {/* Header hit area */}
             <rect
                 x={0}
                 y={0}
                 width={width}
                 height={NODE_HEADER_HEIGHT}
                 fill="transparent"
-                onMouseDown={e => {
+                onMouseDown={(e) => {
                     e.stopPropagation();
                     onSelect?.(e);
                 }}
-                onDoubleClick={e => {
+                onDoubleClick={(e) => {
                     e.stopPropagation();
                     onDoubleClickName?.();
                 }}
@@ -202,18 +222,39 @@ export default function ClassNode({
                 <line x1={0} y1={NODE_HEADER_HEIGHT} x2={width} y2={NODE_HEADER_HEIGHT} stroke="#3a4155" />
                 <line x1={0} y1={methodsSeparatorY} x2={width} y2={methodsSeparatorY} stroke="#3a4155" />
 
+                {hasStereo && (
+                    <text
+                        x={centerX}
+                        y={stereoY}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fontSize={12}
+                        fill="#e6e6e6"
+                        fontFamily="Inter, system-ui, sans-serif"
+                        style={{ pointerEvents: "none", userSelect: "none" as const }}
+                    >
+                        {stereoLine}
+                    </text>
+                )}
+
                 <text
-                    x={PADDING_X}
-                    y={NODE_HEADER_HEIGHT / 2}
+                    x={centerX}
+                    y={nameY}
+                    textAnchor="middle"
                     dominantBaseline="middle"
                     fontSize={14}
                     fill="#e6e6e6"
                     fontFamily="Inter, system-ui, sans-serif"
-                    style={{ pointerEvents: "none", userSelect: "none" as const }}
+                    style={{
+                        pointerEvents: "none",
+                        userSelect: "none" as const,
+                        fontStyle: kind === "abstract" ? ("italic" as const) : ("normal" as const),
+                    }}
                 >
                     {name}
                 </text>
 
+                {/* Attributes left-aligned */}
                 {attrs.map((a, i) => {
                     const yMid = NODE_ATTR_START_Y + i * NODE_LINE_HEIGHT + NODE_LINE_HEIGHT / 2;
 
@@ -225,11 +266,11 @@ export default function ClassNode({
                                 width={width}
                                 height={NODE_LINE_HEIGHT}
                                 fill="transparent"
-                                onMouseDown={e => {
+                                onMouseDown={(e) => {
                                     e.stopPropagation();
                                     onSelect?.(e);
                                 }}
-                                onDoubleClick={e => {
+                                onDoubleClick={(e) => {
                                     e.stopPropagation();
                                     onDoubleClickAttribute?.(i);
                                 }}
@@ -250,6 +291,7 @@ export default function ClassNode({
                     );
                 })}
 
+                {/* Methods left-aligned */}
                 {mets.map((m, i) => {
                     const yMid = methodsStartY + i * NODE_LINE_HEIGHT + NODE_LINE_HEIGHT / 2;
 
@@ -261,11 +303,11 @@ export default function ClassNode({
                                 width={width}
                                 height={NODE_LINE_HEIGHT}
                                 fill="transparent"
-                                onMouseDown={e => {
+                                onMouseDown={(e) => {
                                     e.stopPropagation();
                                     onSelect?.(e);
                                 }}
-                                onDoubleClick={e => {
+                                onDoubleClick={(e) => {
                                     e.stopPropagation();
                                     onDoubleClickMethod?.(i);
                                 }}
@@ -287,95 +329,103 @@ export default function ClassNode({
                 })}
             </g>
 
-            {showPorts && !editing && nearAny && (hoverSide || bestSide) && (() => {
-                const side = hoverSide ?? bestSide;
-                if (!side) return null;
-                const p = ports.find(pp => pp.side === side);
-                if (!p) return null;
+            {/* Anchors: UN SEUL + affiché (côté le plus proche), jamais les 4 */}
+            {showPorts &&
+                !editing &&
+                nearAny &&
+                (hoverSide || bestSide) &&
+                (() => {
+                    const side = hoverSide ?? bestSide;
+                    if (!side) return null;
+                    const p = ports.find((pp) => pp.side === side);
+                    if (!p) return null;
 
-                const isHot = hoverSide === side;
-                const opacity = isHot ? 0.92 : 0.32;
-                const scale = isHot ? 1.12 : 1.0;
-                const r = 7;
+                    const isHot = hoverSide === side;
+                    const opacity = isHot ? 0.92 : 0.32;
+                    const scale = isHot ? 1.12 : 1.0;
+                    const r = 7;
 
-                return (
-                    <g
-                        transform={`translate(${p.lx}, ${p.ly}) scale(${scale})`}
-                        onMouseDown={(e) => {
-                            e.stopPropagation();
-                            onPortMouseDown?.(side, e);
-                        }}
-                        style={{ cursor: "crosshair" }}
-                    >
-                        <circle
-                            cx={0}
-                            cy={0}
-                            r={r}
-                            fill="#cfd6e61a"
-                            stroke={isHot ? "#6aa9ff" : "#cfd6e6"}
-                            strokeWidth={1.5}
-                            opacity={opacity}
-                        />
-                        <line x1={-3.5} y1={0} x2={3.5} y2={0} stroke="#cfd6e6" strokeWidth={1.5} opacity={opacity} />
-                        <line x1={0} y1={-3.5} x2={0} y2={3.5} stroke="#cfd6e6" strokeWidth={1.5} opacity={opacity} />
-                    </g>
-                );
-            })()}
+                    return (
+                        <g
+                            transform={`translate(${p.lx}, ${p.ly}) scale(${scale})`}
+                            onMouseDown={(e) => {
+                                e.stopPropagation();
+                                onPortMouseDown?.(side, e);
+                            }}
+                            style={{ cursor: "crosshair" }}
+                        >
+                            <circle
+                                cx={0}
+                                cy={0}
+                                r={r}
+                                fill="#cfd6e61a"
+                                stroke={isHot ? "#6aa9ff" : "#cfd6e6"}
+                                strokeWidth={1.5}
+                                opacity={opacity}
+                            />
+                            <line x1={-3.5} y1={0} x2={3.5} y2={0} stroke="#cfd6e6" strokeWidth={1.5} opacity={opacity} />
+                            <line x1={0} y1={-3.5} x2={0} y2={3.5} stroke="#cfd6e6" strokeWidth={1.5} opacity={opacity} />
+                        </g>
+                    );
+                })()}
 
-            {lockNear && (() => {
-                const isLocked = sizeMode === "locked";
-                const opacity = lockHot ? 0.92 : 0.32;
-                const scale = lockHot ? 1.12 : 1.0;
-                const r = 7;
+            {/* Lock: même style (cercle + cadenas) */}
+            {lockNear &&
+                (() => {
+                    const isLocked = sizeMode === "locked";
+                    const opacity = lockHot ? 0.92 : 0.32;
+                    const scale = lockHot ? 1.12 : 1.0;
+                    const r = 7;
 
-                return (
-                    <g
-                        transform={`translate(${lockPoint.lx}, ${lockPoint.ly}) scale(${scale})`}
-                        onMouseDown={(e) => {
-                            if (!lockHot) return;
-                            if (!onToggleSizeMode) return;
-                            e.stopPropagation();
-                            onToggleSizeMode();
-                        }}
-                        style={{ cursor: lockHot ? "pointer" : "default" }}
-                    >
-                        <circle
-                            cx={0}
-                            cy={0}
-                            r={r}
-                            fill="#cfd6e61a"
-                            stroke={isLocked ? "#6aa9ff" : "#cfd6e6"}
-                            strokeWidth={1.5}
-                            opacity={opacity}
-                        />
+                    return (
+                        <g
+                            transform={`translate(${lockPoint.lx}, ${lockPoint.ly}) scale(${scale})`}
+                            onMouseDown={(e) => {
+                                if (!lockHot) return;
+                                if (!onToggleSizeMode) return;
+                                e.stopPropagation();
+                                onToggleSizeMode();
+                            }}
+                            style={{ cursor: lockHot ? "pointer" : "default" }}
+                        >
+                            <circle
+                                cx={0}
+                                cy={0}
+                                r={r}
+                                fill="#cfd6e61a"
+                                stroke={isLocked ? "#6aa9ff" : "#cfd6e6"}
+                                strokeWidth={1.5}
+                                opacity={opacity}
+                            />
 
-                        {isLocked ? (
-                            <>
-                                <rect x={-3.2} y={-0.5} width={6.4} height={5.2} rx={1.2} fill="#cfd6e6" opacity={opacity} />
-                                <path
-                                    d="M -2.2 -0.5 v -1.0 c 0 -1.6 1.0 -2.6 2.2 -2.6 s 2.2 1.0 2.2 2.6 v 1.0"
-                                    fill="none"
-                                    stroke="#cfd6e6"
-                                    strokeWidth={1.2}
-                                    opacity={opacity}
-                                />
-                            </>
-                        ) : (
-                            <>
-                                <rect x={-3.2} y={-0.5} width={6.4} height={5.2} rx={1.2} fill="#cfd6e6" opacity={opacity} />
-                                <path
-                                    d="M -2.2 -0.5 v -1.0 c 0 -1.6 1.0 -2.6 2.2 -2.6 c 0.7 0 1.3 0.3 1.7 0.8"
-                                    fill="none"
-                                    stroke="#cfd6e6"
-                                    strokeWidth={1.2}
-                                    opacity={opacity}
-                                />
-                            </>
-                        )}
-                    </g>
-                );
-            })()}
+                            {isLocked ? (
+                                <>
+                                    <rect x={-3.2} y={-0.5} width={6.4} height={5.2} rx={1.2} fill="#cfd6e6" opacity={opacity} />
+                                    <path
+                                        d="M -2.2 -0.5 v -1.0 c 0 -1.6 1.0 -2.6 2.2 -2.6 s 2.2 1.0 2.2 2.6 v 1.0"
+                                        fill="none"
+                                        stroke="#cfd6e6"
+                                        strokeWidth={1.2}
+                                        opacity={opacity}
+                                    />
+                                </>
+                            ) : (
+                                <>
+                                    <rect x={-3.2} y={-0.5} width={6.4} height={5.2} rx={1.2} fill="#cfd6e6" opacity={opacity} />
+                                    <path
+                                        d="M -2.2 -0.5 v -1.0 c 0 -1.6 1.0 -2.6 2.2 -2.6 c 0.7 0 1.3 0.3 1.7 0.8"
+                                        fill="none"
+                                        stroke="#cfd6e6"
+                                        strokeWidth={1.2}
+                                        opacity={opacity}
+                                    />
+                                </>
+                            )}
+                        </g>
+                    );
+                })()}
 
+            {/* Border: toujours présent */}
             <rect
                 width={width}
                 height={height}
@@ -386,9 +436,10 @@ export default function ClassNode({
                 pointerEvents="none"
             />
 
+            {/* Handles: uniquement quand sélectionné + pas en édition */}
             {selected &&
                 !editing &&
-                handles.map(h => (
+                handles.map((h) => (
                     <rect
                         key={h.h}
                         x={h.x - HANDLE_SIZE / 2}
@@ -396,7 +447,7 @@ export default function ClassNode({
                         width={HANDLE_SIZE}
                         height={HANDLE_SIZE}
                         fill="#6aa9ff"
-                        onMouseDown={e => {
+                        onMouseDown={(e) => {
                             e.stopPropagation();
                             onResizeStart?.(h.h, e);
                         }}

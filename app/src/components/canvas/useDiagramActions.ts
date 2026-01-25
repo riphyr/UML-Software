@@ -95,19 +95,37 @@ export function useDiagramActions(args: {
         return classes.find((c) => c.id === id) ?? null;
     }
 
-    function applyClassEdits(id: string, next: { name: string; attributes: string[]; methods: string[] }) {
+    function applyClassEdits(
+        id: string,
+        next: {
+            name: string;
+            stereotype: string;
+            kind: "class" | "abstract" | "interface";
+            attributes: string[];
+            methods: string[];
+        }
+    ) {
         undo.pushSnapshot();
 
-        setClasses((prev: UmlClass[]) =>
+        setClasses((prev) =>
             prev.map((c) =>
-                c.id === id ? { ...c, name: next.name, attributes: next.attributes, methods: next.methods } : c
+                c.id === id
+                    ? { ...c, name: next.name, stereotype: next.stereotype, kind: next.kind, attributes: next.attributes, methods: next.methods }
+                    : c
             )
         );
 
         setViewsById((prev) => {
             const patch = applyAutoSizeIfNeeded({
                 view: prev[id],
-                nextClass: { id, name: next.name, attributes: next.attributes, methods: next.methods },
+                nextClass: {
+                    id,
+                    name: next.name,
+                    stereotype: next.stereotype,
+                    kind: next.kind,
+                    attributes: next.attributes,
+                    methods: next.methods,
+                },
                 grid,
             });
 
@@ -145,8 +163,10 @@ export function useDiagramActions(args: {
         const newClass: UmlClass = {
             id,
             name: "NewClass",
-            attributes: ["+ attr: Type"],
-            methods: ["+ method(): Return"],
+            stereotype: "",
+            kind: "class",
+            attributes: [],
+            methods: [],
         };
 
         const size = computeAutoSize(newClass, grid);

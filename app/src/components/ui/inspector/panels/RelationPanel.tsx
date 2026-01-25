@@ -95,10 +95,18 @@ export default function RelationPanel(p: {
                         { value: "agg", label: "Aggregation" },
                         { value: "comp", label: "Composition" },
                     ]}
-                    onChange={p.onSetKind}
+                    onChange={(k) => p.onSetKind(k)}
                 />
 
-                <TextField label="Label" value={label} onChange={setLabel} placeholder="optional" />
+                <TextField
+                    label="Label"
+                    value={label}
+                    onChange={(v) => {
+                        setLabel(v);
+                        p.onSetLabel(v);
+                    }}
+                    placeholder="optional"
+                />
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <div style={{ fontSize: 12, color: "#a9b4d0" }}>Cardinality</div>
@@ -107,14 +115,20 @@ export default function RelationPanel(p: {
                         label={`From (${p.fromName})`}
                         value={fromCardinality}
                         options={CARD_OPTS}
-                        onChange={setFromCardinality}
+                        onChange={(v) => {
+                            setFromCardinality(v);
+                            p.onSetCardinality({ fromCardinality: v, toCardinality });
+                        }}
                     />
 
                     <SelectField<Cardinality>
                         label={`To (${p.toName})`}
                         value={toCardinality}
                         options={CARD_OPTS}
-                        onChange={setToCardinality}
+                        onChange={(v) => {
+                            setToCardinality(v);
+                            p.onSetCardinality({ fromCardinality, toCardinality: v });
+                        }}
                     />
                 </div>
 
@@ -154,27 +168,6 @@ export default function RelationPanel(p: {
                             +
                         </button>
                     </div>
-                </div>
-
-                <div style={{ display: "flex", gap: 8 }}>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            p.onSetLabel(label);
-                            p.onSetCardinality({ fromCardinality, toCardinality });
-                        }}
-                        style={{
-                            padding: "8px 10px",
-                            borderRadius: 10,
-                            border: "1px solid #2a3040",
-                            background: "#161b28",
-                            color: "#e8eefc",
-                            cursor: "pointer",
-                        }}
-                    >
-                        Apply
-                    </button>
-
                     <ActionRow onDelete={p.onDelete} />
                 </div>
             </div>

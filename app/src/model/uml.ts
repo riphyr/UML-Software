@@ -1,6 +1,12 @@
 export type UmlClass = {
     id: string;
     name: string;
+    // UML stereotype displayed as <<stereotype>> above the class name.
+    // Empty string means "no stereotype".
+    stereotype: string;
+
+    // Visual/semantic kind of the classifier.
+    kind: "class" | "abstract" | "interface";
     attributes: string[];
     methods: string[];
 };

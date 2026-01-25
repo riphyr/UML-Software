@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { UmlClass } from "../../../../model/uml";
+import type { UmlClass, UmlClassKind } from "../../../../model/uml";
 import {
     formatAttributeLine,
     formatMethodLine,
@@ -104,11 +104,13 @@ function fromReturnText(s: string): string[] {
 
 export default function ClassPanel(p: {
     c: UmlClass;
-    onApply: (next: { name: string; attributes: string[]; methods: string[] }) => void;
+    onApply: (next: { name: string; stereotype: string; kind: UmlClassKind; attributes: string[]; methods: string[] }) => void;
     onDelete: () => void;
     onDuplicate: () => void;
 }) {
     const [name, setName] = useState(p.c.name);
+    const [stereotype, setStereotype] = useState(p.c.stereotype ?? "");
+    const [kind, setKind] = useState<UmlClassKind>(p.c.kind ?? "class");
 
     const parsedAttrs = useMemo(() => p.c.attributes.map(parseAttributeLine), [p.c.attributes]);
     const parsedMethods = useMemo(() => p.c.methods.map(parseMethodLine), [p.c.methods]);
@@ -120,10 +122,12 @@ export default function ClassPanel(p: {
 
     useEffect(() => {
         setName(p.c.name);
+        setStereotype(p.c.stereotype ?? "");
+        setKind(p.c.kind ?? "class");
         setAttrs(parsedAttrs);
         setMethods(parsedMethods);
         setReturnTextByIndex({});
-    }, [p.c.id, p.c.name, parsedAttrs, parsedMethods]);
+    }, [p.c.id, p.c.name, p.c.stereotype, p.c.kind, parsedAttrs, parsedMethods]);
 
     function addAttribute() {
         setAttrs((prev) => [...prev, { visibility: "none", name: "attr", type: "Type" }]);
@@ -133,23 +137,60 @@ export default function ClassPanel(p: {
         setMethods((prev) => [...prev, { visibility: "none", name: "method", params: [], returnTypes: [] }]);
     }
 
+    function commit() {
+        const nextName = name.trim() || "ClassName";
+        const nextStereotype = stereotype.trim();
+        const nextKind: UmlClassKind = kind || "class";
+
+        const nextAttributes = attrs
+            .map(formatAttributeLine)
+            .map((x) => x.trim())
+            .filter((x) => x.length > 0);
+
+        const nextMethods = methods
+            .map(formatMethodLine)
+            .map((x) => x.trim())
+            .filter((x) => x.length > 0);
+
+        p.onApply({ name: nextName, stereotype: nextStereotype, kind: nextKind, attributes: nextAttributes, methods: nextMethods });
+    }
+
+    useEffect(() => {
+        const t = window.setTimeout(() => commit(), 200);
+        return () => window.clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [name, stereotype, kind, attrs, methods]);
+
     return (
         <div
             style={{
                 display: "flex",
                 flexDirection: "column",
                 gap: 10,
-
-                // +40% largeur (sans casser le layout global : on garde aussi une min-width solide)
                 width: "100%",
                 minWidth: 0,
-
                 boxSizing: "border-box",
             }}
         >
             <Section title="Class">
                 <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%", minWidth: 0 }}>
                     <TextField label="Name" value={name} onChange={(v) => setName(v)} placeholder="ClassName" />
+
+                    <TextField
+                        label="Stereotype"
+                        value={stereotype}
+                        onChange={(v) => setStereotype(v)}
+                        placeholder="entity / control / boundary ..."
+                    />
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%", minWidth: 0 }}>
+                        <div style={LABEL_STYLE}>Kind</div>
+                        <select value={kind} onChange={(e) => setKind(e.target.value as UmlClassKind)} style={INPUT_BASE}>
+                            <option value="class">class</option>
+                            <option value="abstract">abstract</option>
+                            <option value="interface">interface</option>
+                        </select>
+                    </div>
 
                     {/* Attributes */}
                     <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", minWidth: 0 }}>
@@ -169,8 +210,6 @@ export default function ClassPanel(p: {
                                         key={`attr-${i}`}
                                         style={{
                                             ...ROW,
-                                            // visibilité -30% : 140px -> 100px
-                                            // minmax(0,1fr) pour éviter les débordements
                                             gridTemplateColumns: "100px minmax(0, 1fr) minmax(0, 1fr) 40px",
                                         }}
                                     >
@@ -295,7 +334,10 @@ export default function ClassPanel(p: {
                                                                     idx === i
                                                                         ? {
                                                                             ...x,
-                                                                            params: [...(x.params ?? []), { direction: "in", name: "p", type: "Type" }],
+                                                                            params: [
+                                                                                ...(x.params ?? []),
+                                                                                { direction: "in", name: "p", type: "Type" },
+                                                                            ],
                                                                         }
                                                                         : x
                                                                 )
@@ -315,7 +357,6 @@ export default function ClassPanel(p: {
                                                                 key={`param-${i}-${pi}`}
                                                                 style={{
                                                                     ...ROW,
-                                                                    // direction plus petit, et colonnes “shrink-safe”
                                                                     gridTemplateColumns: "70px minmax(0, 1fr) minmax(0, 1fr) 40px",
                                                                 }}
                                                             >
@@ -423,26 +464,6 @@ export default function ClassPanel(p: {
                     </div>
 
                     <div style={{ display: "flex", gap: 8 }}>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                const nextName = name.trim() || "ClassName";
-                                const nextAttributes = attrs
-                                    .map(formatAttributeLine)
-                                    .map((x) => x.trim())
-                                    .filter((x) => x.length > 0);
-
-                                const nextMethods = methods
-                                    .map(formatMethodLine)
-                                    .map((x) => x.trim())
-                                    .filter((x) => x.length > 0);
-
-                                p.onApply({ name: nextName, attributes: nextAttributes, methods: nextMethods });
-                            }}
-                            style={BTN}
-                        >
-                            Apply
-                        </button>
                         <ActionRow onDelete={p.onDelete} onDuplicate={p.onDuplicate} />
                     </div>
                 </div>
