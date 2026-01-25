@@ -56,16 +56,16 @@ export default function RelationPanel(p: {
         flex: 1,
         padding: "8px 10px",
         borderRadius: 10,
-        border: "1px solid #2a3040",
-        background: "#161b28",
-        color: "#e8eefc",
+        border: "1px solid #2b1f27",
+        background: "#14151c",
+        color: "#eceaf2",
         cursor: "pointer",
     } as const;
 
     return (
         <Section title="Relation">
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <div style={{ fontSize: 12, color: "#a9b4d0" }}>
+                <div style={{ fontSize: 12, color: "#c9c4d6" }}>
                     {p.fromName} → {p.toName}
                 </div>
 
@@ -75,9 +75,9 @@ export default function RelationPanel(p: {
                     style={{
                         padding: "8px 10px",
                         borderRadius: 10,
-                        border: "1px solid #2a3040",
-                        background: "#0f1420",
-                        color: "#e8eefc",
+                        border: "1px solid #2b1f27",
+                        background: "#101116",
+                        color: "#eceaf2",
                         cursor: "pointer",
                     }}
                 >
@@ -109,7 +109,7 @@ export default function RelationPanel(p: {
                 />
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ fontSize: 12, color: "#a9b4d0" }}>Cardinality</div>
+                    <div style={{ fontSize: 12, color: "#c9c4d6" }}>Cardinality</div>
 
                     <SelectField<Cardinality>
                         label={`From (${p.fromName})`}
@@ -133,7 +133,9 @@ export default function RelationPanel(p: {
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ fontSize: 12, color: "#a9b4d0" }}>Waypoints internes</div>
+                    <div style={{ fontSize: 12, color: "#c9c4d6" }}>
+                        Waypoints internes
+                    </div>
 
                     <div style={{ display: "flex", gap: 8, width: "100%" }}>
                         <button
@@ -151,9 +153,9 @@ export default function RelationPanel(p: {
                                 alignItems: "center",
                                 justifyContent: "center",
                                 borderRadius: 10,
-                                border: "1px solid #2a3040",
-                                background: "#0f1420",
-                                color: "#e8eefc",
+                                border: "1px solid #2b1f27",
+                                background: "#101116",
+                                color: "#eceaf2",
                                 userSelect: "none",
                             }}
                         >

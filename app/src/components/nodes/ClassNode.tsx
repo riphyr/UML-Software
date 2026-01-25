@@ -192,7 +192,7 @@ export default function ClassNode({
                 width={width}
                 height={height}
                 rx={6}
-                fill="#1c2230"
+                fill="#17121a"
                 onMouseDown={(e) => {
                     if (editing) return;
                     onMouseDown?.(e);
@@ -219,8 +219,8 @@ export default function ClassNode({
             />
 
             <g clipPath={`url(#${clipId})`}>
-                <line x1={0} y1={NODE_HEADER_HEIGHT} x2={width} y2={NODE_HEADER_HEIGHT} stroke="#3a4155" />
-                <line x1={0} y1={methodsSeparatorY} x2={width} y2={methodsSeparatorY} stroke="#3a4155" />
+                <line x1={0} y1={NODE_HEADER_HEIGHT} x2={width} y2={NODE_HEADER_HEIGHT} stroke="#3a2b34" />
+                <line x1={0} y1={methodsSeparatorY} x2={width} y2={methodsSeparatorY} stroke="#3a2b34" />
 
                 {hasStereo && (
                     <text
@@ -229,7 +229,7 @@ export default function ClassNode({
                         textAnchor="middle"
                         dominantBaseline="middle"
                         fontSize={12}
-                        fill="#e6e6e6"
+                        fill="#f2f0f7"
                         fontFamily="Inter, system-ui, sans-serif"
                         style={{ pointerEvents: "none", userSelect: "none" as const }}
                     >
@@ -243,7 +243,7 @@ export default function ClassNode({
                     textAnchor="middle"
                     dominantBaseline="middle"
                     fontSize={14}
-                    fill="#e6e6e6"
+                    fill="#f2f0f7"
                     fontFamily="Inter, system-ui, sans-serif"
                     style={{
                         pointerEvents: "none",
@@ -281,7 +281,7 @@ export default function ClassNode({
                                 y={yMid}
                                 dominantBaseline="middle"
                                 fontSize={12}
-                                fill="#cfd6e6"
+                                fill="#c9c4d6"
                                 fontFamily="Inter, system-ui, sans-serif"
                                 style={{ pointerEvents: "none", userSelect: "none" as const }}
                             >
@@ -318,7 +318,7 @@ export default function ClassNode({
                                 y={yMid}
                                 dominantBaseline="middle"
                                 fontSize={12}
-                                fill="#cfd6e6"
+                                fill="#c9c4d6"
                                 fontFamily="Inter, system-ui, sans-serif"
                                 style={{ pointerEvents: "none", userSelect: "none" as const }}
                             >
@@ -358,13 +358,13 @@ export default function ClassNode({
                                 cx={0}
                                 cy={0}
                                 r={r}
-                                fill="#cfd6e61a"
-                                stroke={isHot ? "#6aa9ff" : "#cfd6e6"}
+                                fill="#3a2b3430"
+                                stroke={isHot ? "#ff355d" : "#c9c4d6"}
                                 strokeWidth={1.5}
                                 opacity={opacity}
                             />
-                            <line x1={-3.5} y1={0} x2={3.5} y2={0} stroke="#cfd6e6" strokeWidth={1.5} opacity={opacity} />
-                            <line x1={0} y1={-3.5} x2={0} y2={3.5} stroke="#cfd6e6" strokeWidth={1.5} opacity={opacity} />
+                            <line x1={-3.5} y1={0} x2={3.5} y2={0} stroke="#c9c4d6" strokeWidth={1.5} opacity={opacity} />
+                            <line x1={0} y1={-3.5} x2={0} y2={3.5} stroke="#c9c4d6" strokeWidth={1.5} opacity={opacity} />
                         </g>
                     );
                 })()}
@@ -392,30 +392,30 @@ export default function ClassNode({
                                 cx={0}
                                 cy={0}
                                 r={r}
-                                fill="#cfd6e61a"
-                                stroke={isLocked ? "#6aa9ff" : "#cfd6e6"}
+                                fill="#c9c4d6"
+                                stroke={isLocked ? "#ff355d" : "#c9c4d6"}
                                 strokeWidth={1.5}
                                 opacity={opacity}
                             />
 
                             {isLocked ? (
                                 <>
-                                    <rect x={-3.2} y={-0.5} width={6.4} height={5.2} rx={1.2} fill="#cfd6e6" opacity={opacity} />
+                                    <rect x={-3.2} y={-0.5} width={6.4} height={5.2} rx={1.2} fill="#ff355d" opacity={opacity} />
                                     <path
                                         d="M -2.2 -0.5 v -1.0 c 0 -1.6 1.0 -2.6 2.2 -2.6 s 2.2 1.0 2.2 2.6 v 1.0"
                                         fill="none"
-                                        stroke="#cfd6e6"
+                                        stroke="#ff355d"
                                         strokeWidth={1.2}
                                         opacity={opacity}
                                     />
                                 </>
                             ) : (
                                 <>
-                                    <rect x={-3.2} y={-0.5} width={6.4} height={5.2} rx={1.2} fill="#cfd6e6" opacity={opacity} />
+                                    <rect x={-3.2} y={-0.5} width={6.4} height={5.2} rx={1.2} fill="#c9c4d6" opacity={opacity} />
                                     <path
                                         d="M -2.2 -0.5 v -1.0 c 0 -1.6 1.0 -2.6 2.2 -2.6 c 0.7 0 1.3 0.3 1.7 0.8"
                                         fill="none"
-                                        stroke="#cfd6e6"
+                                        stroke="#c9c4d6"
                                         strokeWidth={1.2}
                                         opacity={opacity}
                                     />
@@ -431,7 +431,7 @@ export default function ClassNode({
                 height={height}
                 rx={6}
                 fill="none"
-                stroke={selected ? "#6aa9ff" : "#3a4155"}
+                stroke={selected ? "#ff355d" : "#3a2b34"}
                 strokeWidth={selected ? 2 : 1}
                 pointerEvents="none"
             />
@@ -446,7 +446,7 @@ export default function ClassNode({
                         y={h.y - HANDLE_SIZE / 2}
                         width={HANDLE_SIZE}
                         height={HANDLE_SIZE}
-                        fill="#6aa9ff"
+                        fill="#ff355d"
                         onMouseDown={(e) => {
                             e.stopPropagation();
                             onResizeStart?.(h.h, e);

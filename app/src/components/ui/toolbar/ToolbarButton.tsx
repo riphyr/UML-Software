@@ -6,8 +6,8 @@ export default function ToolbarButton(p: {
     onClick: () => void;
     children: ReactNode;
 }) {
-    const bg = p.active ? "#2a3a55" : "#1e2430";
-    const border = p.active ? "#6aa9ff" : "#2a3040";
+    const bg = p.active ? "#2a1220" : "#0f1118";
+    const border = p.active ? "#ff355d" : "#2b1f27";
 
     return (
         <button
@@ -19,7 +19,7 @@ export default function ToolbarButton(p: {
                 borderRadius: 8,
                 border: `1px solid ${border}`,
                 background: bg,
-                color: "#e8eefc",
+                color: "#eceaf2",
                 fontSize: 13,
                 cursor: "pointer",
                 userSelect: "none",

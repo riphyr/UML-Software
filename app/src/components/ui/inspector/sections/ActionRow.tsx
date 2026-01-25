@@ -8,9 +8,9 @@ export default function ActionRow(p: { onDelete: () => void; onDuplicate?: () =>
                     style={{
                         padding: "8px 10px",
                         borderRadius: 10,
-                        border: "1px solid #2a3040",
+                        border: "1px solid #2b1f27",
                         background: "#161b28",
-                        color: "#e8eefc",
+                        color: "#eceaf2",
                         cursor: "pointer",
                     }}
                 >

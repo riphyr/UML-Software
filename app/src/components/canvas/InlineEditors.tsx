@@ -31,7 +31,7 @@ const BORDER_EXTRA_X = 4;
 const BORDER_HEIGHT = 18;
 const BORDER_Y_OFFSET = -1;
 
-const BORDER_COLOR = "#6aa9ff";
+const BORDER_COLOR = "#ff355d";
 const CARET_COLOR = "#e6e6e6";
 
 const IDLE_MS = 500;
@@ -331,7 +331,7 @@ export default function InlineEditors(props: Props) {
                     y={caretY1}
                     width={Math.max(1, Math.abs(selX2 - selX1))}
                     height={Math.max(1, caretY2 - caretY1)}
-                    fill="rgba(106,169,255,0.35)"
+                    fill="rgba(255,53,93,0.35)"
                     pointerEvents="none"
                     rx={2}
                 />

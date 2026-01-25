@@ -430,8 +430,8 @@ export default function DiagramCanvas() {
                             y={(input as any).boxRect.y}
                             width={(input as any).boxRect.w}
                             height={(input as any).boxRect.h}
-                            fill="rgba(106,169,255,0.15)"
-                            stroke="#6aa9ff"
+                            fill="rgba(255,53,93,0.15)"
+                            stroke="#ff355d"
                             strokeWidth={1}
                             strokeDasharray="6 4"
                             pointerEvents="none"
@@ -444,7 +444,7 @@ export default function DiagramCanvas() {
                             y1={relApi.previewLine.a.y}
                             x2={relApi.previewLine.b.x}
                             y2={relApi.previewLine.b.y}
-                            stroke="#6aa9ff"
+                             stroke="#ff355d"
                             strokeWidth={2}
                             strokeDasharray="6 4"
                             pointerEvents="none"
@@ -457,7 +457,7 @@ export default function DiagramCanvas() {
                             y1={relReconnectApi.previewLine.a.y}
                             x2={relReconnectApi.previewLine.b.x}
                             y2={relReconnectApi.previewLine.b.y}
-                            stroke="#6aa9ff"
+                            stroke="#ff355d"
                             strokeWidth={2}
                             strokeDasharray="6 4"
                             pointerEvents="none"

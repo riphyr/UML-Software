@@ -2,23 +2,48 @@
     font-family: "Inter";
     src: url("/public/fonts/Inter.woff2") format("woff2");
     font-weight: 100 900;
+    font-weight: 100 900;
     font-style: normal;
 }
 
-@font-face {
-    font-family: "Code";
-    src: url("/public/fonts/GoogleSansCode.woff2") format("woff2");
-    font-weight: 100 900;
-    font-style: normal;
+:root{
+    /* Crimson Red (modern) theme tokens */
+    --bg: #090a0f;
+    --bg-elev-1: #120b10;
+    --bg-elev-2: #180c12;
+
+    --text: #eceaf2;
+    --text-muted: #c9c4d6;
+
+    --border: #2b1f27;
+    --border-strong: #3a2b34;
+
+    /* Accent: crimson family */
+    --accent: #b11234;
+    --accent-2: #ff355d;
+    --accent-soft: rgba(177, 18, 52, 0.18);
+    --accent-soft-2: rgba(255, 53, 93, 0.18);
+
+    /* Diagram */
+    --grid: rgba(140, 110, 125, 0.16);
+    --axes: rgba(255, 53, 93, 0.60);
+
+    --node-bg: #17121a;
+    --node-text: #f2f0f7;
+    --node-subtext: #c9c4d6;
+    --node-divider: #3a2b34;
+
+    --relation: #d8d6e2;
 }
 
 html, body, #root {
     height: 100%;
     margin: 0;
     padding: 0;
-    background: #0f1115;
+    background: var(--bg);
     overflow: hidden;
     font-family: "Inter", system-ui, sans-serif;
+    color: var(--text);
 }
 
 * {
@@ -28,7 +53,7 @@ html, body, #root {
 /* Firefox */
 .uml-inspector {
     scrollbar-width: thin;
-    scrollbar-color: rgba(230, 238, 252, 0.28) rgba(11, 15, 25, 0.6);
+    scrollbar-color: rgba(255, 53, 93, 0.35) rgba(9, 10, 15, 0.65);
 }
 
 /* Chromium / Edge / Safari */
@@ -37,18 +62,18 @@ html, body, #root {
 }
 
 .uml-inspector::-webkit-scrollbar-track {
-    background: rgba(11, 15, 25, 0.6);
+    background: rgba(9, 10, 15, 0.65);
     border-radius: 999px;
 }
 
 .uml-inspector::-webkit-scrollbar-thumb {
-    background: rgba(232, 238, 252, 0.22);
+    background: rgba(255, 53, 93, 0.28);
     border-radius: 999px;
-    border: 2px solid rgba(11, 15, 25, 0.6); /* donne un “gap” propre */
+    border: 2px solid rgba(9, 10, 15, 0.65);
 }
 
 .uml-inspector::-webkit-scrollbar-thumb:hover {
-    background: rgba(232, 238, 252, 0.32);
+    background: rgba(255, 53, 93, 0.40);
 }
 
 .uml-inspector::-webkit-scrollbar-corner {

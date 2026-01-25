@@ -6,16 +6,16 @@ export default function SelectField<T extends string>(p: {
 }) {
     return (
         <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ fontSize: 12, color: "#cdd6f4" }}>{p.label}</div>
+            <div style={{ fontSize: 12, color: "#c9c4d6" }}>{p.label}</div>
             <select
                 value={p.value}
                 onChange={(e) => p.onChange(e.target.value as T)}
                 style={{
                     padding: "8px 10px",
                     borderRadius: 10,
-                    border: "1px solid #2a3040",
+                    border: "1px solid #2b1f27",
                     background: "#0b0f19",
-                    color: "#e8eefc",
+                    color: "#eceaf2",
                     outline: "none",
                 }}
             >

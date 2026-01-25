@@ -5,8 +5,8 @@ export default function App() {
         <div
             style={{
                 height: "100vh",
-                background: "#0f1115",
-                color: "#e6e6e6",
+                background: "var(--bg)",
+                color: "var(--text)",
                 display: "flex",
                 flexDirection: "column",
                 overflow: "hidden",
@@ -34,8 +34,8 @@ export default function App() {
                     style={{
                         height: "100%",
                         borderRadius: 12,
-                        border: "1px solid #2a2f3a",
-                        background: "#141824",
+                        border: "1px solid var(--border)",
+                        background: "#101116",
                         overflow: "hidden",
                     }}
                 >

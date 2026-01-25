@@ -27,7 +27,7 @@ export default function Grid({ width, height, scale, enabled = true, base = 50 }
                 y1={-linesY * step}
                 x2={i * step}
                 y2={linesY * step}
-                stroke="#2a3040"
+                stroke="#2b1f27"
                 strokeWidth={1}
                 opacity={opacity}
             />
@@ -42,7 +42,7 @@ export default function Grid({ width, height, scale, enabled = true, base = 50 }
                 y1={j * step}
                 x2={linesX * step}
                 y2={j * step}
-                stroke="#2a3040"
+                stroke="#2b1f27"
                 strokeWidth={1}
                 opacity={opacity}
             />

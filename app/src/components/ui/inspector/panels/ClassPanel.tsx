@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { UmlClass, UmlClassKind } from "../../../../model/uml";
+import type { UmlClass } from "../../../../model/uml";
 import {
     formatAttributeLine,
     formatMethodLine,
@@ -14,14 +14,14 @@ import Section from "../sections/Section";
 import TextField from "../sections/TextField";
 import ActionRow from "../sections/ActionRow";
 
-const LABEL_STYLE: React.CSSProperties = { fontSize: 12, color: "#cdd6f4" };
+const LABEL_STYLE: React.CSSProperties = { fontSize: 12, color: "#c9c4d6" };
 
 const INPUT_BASE: React.CSSProperties = {
     padding: "6px 8px",
     borderRadius: 10,
-    border: "1px solid #2a3040",
-    background: "#0b0f19",
-    color: "#e8eefc",
+    border: "1px solid #2b1f27",
+    background: "#101116",
+    color: "#eceaf2",
     outline: "none",
     fontFamily: "Inter, system-ui, sans-serif",
     fontSize: 12,
@@ -38,9 +38,9 @@ const MONO_INPUT: React.CSSProperties = {
 const BTN: React.CSSProperties = {
     padding: "8px 10px",
     borderRadius: 10,
-    border: "1px solid #2a3040",
-    background: "#161b28",
-    color: "#e8eefc",
+    border: "1px solid #2b1f27",
+    background: "#14151c",
+    color: "#eceaf2",
     cursor: "pointer",
 };
 
@@ -65,10 +65,10 @@ const ROW: React.CSSProperties = {
 };
 
 const METHOD_CARD: React.CSSProperties = {
-    border: "1px solid #1f2736",
+    border: "1px solid #2b1f27",
     borderRadius: 12,
     padding: 10,
-    background: "#0b0f19",
+    background: "#101116",
     display: "flex",
     flexDirection: "column",
     gap: 10,
@@ -102,15 +102,36 @@ function fromReturnText(s: string): string[] {
         .filter((x) => x.length > 0);
 }
 
+function splitStereo(s: string): string[] {
+    return (s ?? "")
+        .split(",")
+        .map((x) => x.trim())
+        .filter((x) => x.length > 0);
+}
+
+function normalizeStereotype(kind: UmlClass["kind"], raw: string): string {
+    const parts = splitStereo(raw);
+    const isInterfaceToken = (x: string) => x.toLowerCase() === "interface";
+
+    if (kind === "interface") {
+        const rest = parts.filter((x) => !isInterfaceToken(x));
+        return ["interface", ...rest].join(", ");
+    }
+
+    // si on quitte "interface", on enlève le token éventuel pour éviter qu’il reste collé
+    const cleaned = parts.filter((x) => !isInterfaceToken(x));
+    return cleaned.join(", ");
+}
+
 export default function ClassPanel(p: {
     c: UmlClass;
-    onApply: (next: { name: string; stereotype: string; kind: UmlClassKind; attributes: string[]; methods: string[] }) => void;
+    onApply: (next: { name: string; stereotype: string; kind: UmlClass["kind"]; attributes: string[]; methods: string[] }) => void;
     onDelete: () => void;
     onDuplicate: () => void;
 }) {
     const [name, setName] = useState(p.c.name);
     const [stereotype, setStereotype] = useState(p.c.stereotype ?? "");
-    const [kind, setKind] = useState<UmlClassKind>(p.c.kind ?? "class");
+    const [kind, setKind] = useState<UmlClass["kind"]>(p.c.kind ?? "class");
 
     const parsedAttrs = useMemo(() => p.c.attributes.map(parseAttributeLine), [p.c.attributes]);
     const parsedMethods = useMemo(() => p.c.methods.map(parseMethodLine), [p.c.methods]);
@@ -139,8 +160,10 @@ export default function ClassPanel(p: {
 
     function commit() {
         const nextName = name.trim() || "ClassName";
-        const nextStereotype = stereotype.trim();
-        const nextKind: UmlClassKind = kind || "class";
+        const nextKind: UmlClass["kind"] = kind || "class";
+
+        // IMPORTANT: on fusionne "interface" + stéréotypes au lieu d’écraser
+        const nextStereotype = normalizeStereotype(nextKind, stereotype.trim());
 
         const nextAttributes = attrs
             .map(formatAttributeLine)
@@ -152,7 +175,13 @@ export default function ClassPanel(p: {
             .map((x) => x.trim())
             .filter((x) => x.length > 0);
 
-        p.onApply({ name: nextName, stereotype: nextStereotype, kind: nextKind, attributes: nextAttributes, methods: nextMethods });
+        p.onApply({
+            name: nextName,
+            stereotype: nextStereotype,
+            kind: nextKind,
+            attributes: nextAttributes,
+            methods: nextMethods,
+        });
     }
 
     useEffect(() => {
@@ -185,7 +214,16 @@ export default function ClassPanel(p: {
 
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%", minWidth: 0 }}>
                         <div style={LABEL_STYLE}>Kind</div>
-                        <select value={kind} onChange={(e) => setKind(e.target.value as UmlClassKind)} style={INPUT_BASE}>
+                        <select
+                            value={kind}
+                            onChange={(e) => {
+                                const nextKind = e.target.value as UmlClass["kind"];
+                                setKind(nextKind);
+                                // optionnel mais utile: quand on change de kind, on évite un état incohérent
+                                setStereotype((prev) => normalizeStereotype(nextKind, prev));
+                            }}
+                            style={INPUT_BASE}
+                        >
                             <option value="class">class</option>
                             <option value="abstract">abstract</option>
                             <option value="interface">interface</option>
@@ -202,7 +240,7 @@ export default function ClassPanel(p: {
                         </div>
 
                         {attrs.length === 0 ? (
-                            <div style={{ fontSize: 12, color: "#8aa0c8" }}>No attributes</div>
+                            <div style={{ fontSize: 12, color: "#c9c4d6" }}>No attributes</div>
                         ) : (
                             <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", minWidth: 0 }}>
                                 {attrs.map((a, i) => (
@@ -271,7 +309,7 @@ export default function ClassPanel(p: {
                         </div>
 
                         {methods.length === 0 ? (
-                            <div style={{ fontSize: 12, color: "#8aa0c8" }}>No methods</div>
+                            <div style={{ fontSize: 12, color: "#c9c4d6" }}>No methods</div>
                         ) : (
                             <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%", minWidth: 0 }}>
                                 {methods.map((m, i) => {
@@ -349,7 +387,7 @@ export default function ClassPanel(p: {
                                                 </div>
 
                                                 {(m.params ?? []).length === 0 ? (
-                                                    <div style={{ fontSize: 12, color: "#8aa0c8" }}>No parameters</div>
+                                                    <div style={{ fontSize: 12, color: "#c9c4d6" }}>No parameters</div>
                                                 ) : (
                                                     <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", minWidth: 0 }}>
                                                         {(m.params ?? []).map((p2, pi) => (

@@ -20,9 +20,9 @@ export default function MultiPanel(p: {
                     width: "100%",
                     padding: "10px 12px",
                     borderRadius: 8,
-                    border: "1px solid #3a4155",
-                    background: "#2a3142",
-                    color: "#e6e6e6",
+                    border: "1px solid #3a2b34",
+                    background: "#2a1220",
+                    color: "#eceaf2",
                     cursor: "pointer",
                 }}
             >

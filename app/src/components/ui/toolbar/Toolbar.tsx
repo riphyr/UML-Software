@@ -30,8 +30,8 @@ export default function Toolbar(p: {
                 alignItems: "center",
                 padding: 10,
                 borderRadius: 12,
-                border: "1px solid #2a3040",
-                background: "rgba(16, 18, 24, 0.85)",
+                border: "1px solid #2b1f27",
+                background: "rgba(15, 17, 24, 0.85)",
                 backdropFilter: "blur(6px)",
                 zIndex: 10,
             }}
@@ -55,14 +55,14 @@ export default function Toolbar(p: {
                 </ToolbarButton>
             </div>
 
-            <div style={{ width: 1, height: 28, background: "#2a3040" }} />
+            <div style={{ width: 1, height: 28, background: "#2b1f27" }} />
 
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <ToolbarButton active={p.grid.enabled} title="Toggle grid (G)" onClick={p.toggleGrid}>
                     Grid
                 </ToolbarButton>
 
-                <label style={{ display: "flex", gap: 6, alignItems: "center", color: "#cdd6f4", fontSize: 12 }}>
+                <label style={{ display: "flex", gap: 6, alignItems: "center", color: "#c9c4d6", fontSize: 12 }}>
                     size
                     <input
                         type="number"
@@ -74,15 +74,15 @@ export default function Toolbar(p: {
                             width: 64,
                             padding: "6px 8px",
                             borderRadius: 8,
-                            border: "1px solid #2a3040",
-                            background: "#151924",
-                            color: "#e8eefc",
+                            border: "1px solid #2b1f27",
+                            background: "#180c12",
+                            color: "#eceaf2",
                         }}
                     />
                 </label>
             </div>
 
-            <div style={{ width: 1, height: 28, background: "#2a3040" }} />
+            <div style={{ width: 1, height: 28, background: "#2b1f27" }} />
 
             <div style={{ display: "flex", gap: 8 }}>
                 <ToolbarButton title="Undo (Ctrl+Z)" onClick={p.undo}>
@@ -93,7 +93,7 @@ export default function Toolbar(p: {
                 </ToolbarButton>
             </div>
 
-            <div style={{ width: 1, height: 28, background: "#2a3040" }} />
+            <div style={{ width: 1, height: 28, background: "#2b1f27" }} />
 
             <div style={{ display: "flex", gap: 8 }}>
                 <ToolbarButton title="Save" onClick={p.save}>
