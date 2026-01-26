@@ -14,10 +14,50 @@ export type RelationPoint = { x: number; y: number };
 
 export type RelationRoutingMode = "auto" | "manual";
 
-export type Cardinality = "" | "1" | "0..1" | "0..*" | "1..*";
+/**
+ * Cardinalité UML libre.
+ *
+ * Formats acceptés:
+ * - "" (none)
+ * - "N" (exact)
+ * - "N..M" (range)
+ * - "N..*" (N or more)
+ *
+ * Notes:
+ * - On normalise aussi les anciens formats "0.1" / "0.*" / "1.*".
+ * - On refuse "*" seul.
+ */
+export type Cardinality = string;
+
+const CARD_PRESET = new Set(["", "1", "0..1", "0..*", "1..*"]);
+
+function normalizeLegacyCardinality(s: string) {
+    // anciens formats (vu dans l'UI)
+    if (s === "0.1") return "0..1";
+    if (s === "0.*") return "0..*";
+    if (s === "1.*") return "1..*";
+    return s;
+}
+
+function isValidCardinality(s: string) {
+    if (s === "") return true;
+    if (s === "*") return false;
+    if (/^\d+$/.test(s)) return true;
+    if (/^\d+\.\.\*$/.test(s)) return true;
+    if (/^\d+\.\.\d+$/.test(s)) return true;
+    return false;
+}
 
 export function normalizeCardinality(x: unknown): Cardinality {
-    if (x === "" || x === "1" || x === "0..1" || x === "0..*" || x === "1..*") return x;
+    const raw = typeof x === "string" ? x : "";
+    const s0 = raw.trim();
+    const s = normalizeLegacyCardinality(s0);
+
+    // presets
+    if (CARD_PRESET.has(s)) return s;
+
+    // custom
+    if (isValidCardinality(s)) return s;
     return "";
 }
 

@@ -11,13 +11,6 @@ export default function Toolbar(p: {
 
     undo: () => void;
     redo: () => void;
-
-    save: () => void;
-    load: () => void;
-    exportFile: () => void;
-    importFile: () => void;
-
-    exportPng: () => void; // AJOUT
 }) {
     return (
         <div
@@ -90,27 +83,6 @@ export default function Toolbar(p: {
                 </ToolbarButton>
                 <ToolbarButton title="Redo (Ctrl+Y / Ctrl+Shift+Z)" onClick={p.redo}>
                     Redo
-                </ToolbarButton>
-            </div>
-
-            <div style={{ width: 1, height: 28, background: "#2b1f27" }} />
-
-            <div style={{ display: "flex", gap: 8 }}>
-                <ToolbarButton title="Save" onClick={p.save}>
-                    Save
-                </ToolbarButton>
-                <ToolbarButton title="Load" onClick={p.load}>
-                    Load
-                </ToolbarButton>
-                <ToolbarButton title="Export" onClick={p.exportFile}>
-                    Export
-                </ToolbarButton>
-                <ToolbarButton title="Import" onClick={p.importFile}>
-                    Import
-                </ToolbarButton>
-
-                <ToolbarButton title="Export image (PNG)" onClick={p.exportPng}>
-                    Export PNG
                 </ToolbarButton>
             </div>
         </div>
