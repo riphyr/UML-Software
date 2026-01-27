@@ -356,6 +356,7 @@ function ClassDiagramSurface(p: SurfaceProps) {
                     grid={state.grid}
                     toggleGrid={() => state.setGrid((g) => ({ ...g, enabled: !g.enabled }))}
                     setGridSize={(n) => state.setGrid((g) => ({ ...g, size: Math.max(10, Math.round(n)) }))}
+                    recenter={() => cameraApi.setCamera({ x: 0, y: 0, scale: 1 })}
                     undo={() => undoApi.undo()}
                     redo={() => undoApi.redo()}
                 />
@@ -431,13 +432,14 @@ function ClassDiagramSurface(p: SurfaceProps) {
 
                     <g transform={`translate(${cameraApi.camera.x}, ${cameraApi.camera.y}) scale(${cameraApi.camera.scale})`}>
                         <Grid
-                            width={2000}
-                            height={2000}
+                            width={0}
+                            height={0}
                             scale={cameraApi.camera.scale}
                             enabled={state.grid.enabled}
                             base={state.grid.size}
+                            extent={200000}
                         />
-                        <Axes />
+                        <Axes scale={cameraApi.camera.scale} extent={200000} />
 
                         <RelationLayer
                             relations={state.relations}

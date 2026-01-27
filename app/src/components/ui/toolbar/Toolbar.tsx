@@ -1,4 +1,5 @@
 import ToolbarButton from "./ToolbarButton";
+import NumberSpinner from "./NumberSpinner";
 import type { EditorMode, GridState } from "../../../model/ui";
 
 export default function Toolbar(p: {
@@ -11,6 +12,8 @@ export default function Toolbar(p: {
 
     undo: () => void;
     redo: () => void;
+
+    recenter: () => void;
 }) {
     return (
         <div
@@ -55,24 +58,16 @@ export default function Toolbar(p: {
                     Grid
                 </ToolbarButton>
 
-                <label style={{ display: "flex", gap: 6, alignItems: "center", color: "#c9c4d6", fontSize: 12 }}>
-                    size
-                    <input
-                        type="number"
-                        value={p.grid.size}
-                        min={10}
-                        step={10}
-                        onChange={(e) => p.setGridSize(Number(e.target.value) || 10)}
-                        style={{
-                            width: 64,
-                            padding: "6px 8px",
-                            borderRadius: 8,
-                            border: "1px solid #2b1f27",
-                            background: "#180c12",
-                            color: "#eceaf2",
-                        }}
-                    />
-                </label>
+                <NumberSpinner
+                    value={p.grid.size}
+                    min={10}
+                    step={10}
+                    onChange={(v) => p.setGridSize(Math.max(4, Math.floor(v)))}
+                />
+
+                <ToolbarButton title="Recenter view" onClick={p.recenter}>
+                    Center
+                </ToolbarButton>
             </div>
 
             <div style={{ width: 1, height: 28, background: "#2b1f27" }} />

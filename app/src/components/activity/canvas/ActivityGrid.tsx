@@ -1,47 +1,38 @@
-import React from "react";
-
 export default function ActivityGrid(p: {
-    width: number;
-    height: number;
     scale: number;
     enabled: boolean;
     base: number;
+    extent?: number; // half-size in world units
 }) {
     if (!p.enabled) return null;
 
-    const step = p.base;
-    const w = p.width;
-    const h = p.height;
+    const step = Math.max(4, Math.round(p.base));
+    const extent = p.extent ?? 200000; // very large world area
 
-    const lines: React.ReactNode[] = [];
+    // Per-step id avoids pattern collisions if we change the grid size.
+    const patternId = `activity-grid-${step}`;
+    const sw = 1 / p.scale;
 
-    for (let x = 0; x <= w; x += step) {
-        lines.push(
-            <line
-                key={`vx${x}`}
-                x1={x}
-                y1={0}
-                x2={x}
-                y2={h}
-                stroke="rgba(255,255,255,0.04)"
-                strokeWidth={1 / p.scale}
+    return (
+        <g pointerEvents="none">
+            <defs>
+                <pattern id={patternId} width={step} height={step} patternUnits="userSpaceOnUse">
+                    <path
+                        d={`M ${step} 0 L 0 0 0 ${step}`}
+                        fill="none"
+                        stroke="rgba(255,255,255,0.04)"
+                        strokeWidth={sw}
+                    />
+                </pattern>
+            </defs>
+
+            <rect
+                x={-extent}
+                y={-extent}
+                width={extent * 2}
+                height={extent * 2}
+                fill={`url(#${patternId})`}
             />
-        );
-    }
-
-    for (let y = 0; y <= h; y += step) {
-        lines.push(
-            <line
-                key={`hy${y}`}
-                x1={0}
-                y1={y}
-                x2={w}
-                y2={y}
-                stroke="rgba(255,255,255,0.04)"
-                strokeWidth={1 / p.scale}
-            />
-        );
-    }
-
-    return <g>{lines}</g>;
+        </g>
+    );
 }

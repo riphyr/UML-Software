@@ -105,8 +105,6 @@ export default function ActivityDiagramSurface() {
         s.setViewsById((prev) => ({ ...prev, [id]: { x, y, w: size.w, h: size.h } }));
         s.setSelectedNodeIds([id]);
         s.setSelectedFlowId(null);
-
-        // rester en add? (actuel) => oui, tu peux enchaîner des nodes
     }
 
     const input = useActivityInput({
@@ -158,12 +156,13 @@ export default function ActivityDiagramSurface() {
         >
             <ActivityToolbar
                 mode={s.mode}
-                setMode={(m) => {
-                    s.setMode(m);
-                    if (m !== "linkControl" && m !== "linkObject") link.cancel();
-                }}
+                setMode={(m) => { s.setMode(m); if (m !== "linkControl" && m !== "linkObject") link.cancel(); }}
                 undo={() => undo.undo()}
                 redo={() => undo.redo()}
+                grid={s.grid}
+                toggleGrid={() => s.setGrid({ ...s.grid, enabled: !s.grid.enabled })}
+                setGridSize={(n) => s.setGrid({ ...s.grid, size: Math.max(4, Math.floor(n)) })}
+                recenter={() => cam.setCamera({ x: 0, y: 0, scale: 1 })}
             />
 
             <svg
@@ -172,14 +171,27 @@ export default function ActivityDiagramSurface() {
                 height="100%"
                 style={{
                     display: "block",
-                    cursor: cam.isPanning ? "grabbing" : link.active ? "crosshair" : "default",
+                    cursor: cam.isPanning
+                        ? "grabbing"
+                        : link.active
+                            ? "crosshair"
+                            : s.mode === "select"
+                                ? "grab"
+                                : "default",
                     userSelect: "none",
                 }}
                 onWheel={cam.onWheel}
                 onMouseDown={(e) => {
-                    cam.onMouseDown(e);
-                    if (e.button === 1) return;
-                    input.onBackgroundMouseDown(e);
+                    // Background pan: left-drag in Select mode.
+                    // (Nodes/flows stopPropagation so this handler is only for the background.)
+                    if (e.button === 0 && s.mode === "select" && !link.active) {
+                        e.preventDefault();
+                        cam.beginPan(e);
+                        return;
+                    }
+
+                    cam.onMouseDown(e); // middle mouse pan
+                    if (e.button !== 1) input.onBackgroundMouseDown(e);
                 }}
                 onMouseMove={(e) => {
                     cam.onMouseMove(e);
@@ -195,8 +207,8 @@ export default function ActivityDiagramSurface() {
                 }}
             >
                 <g transform={`translate(${cam.camera.x}, ${cam.camera.y}) scale(${cam.camera.scale})`}>
-                    <ActivityGrid width={2000} height={2000} scale={cam.camera.scale} enabled={s.grid.enabled} base={s.grid.size} />
-                    <ActivityAxes scale={cam.camera.scale} />
+                    <ActivityGrid scale={cam.camera.scale} enabled={s.grid.enabled} base={s.grid.size} extent={200000} />
+                    <ActivityAxes scale={cam.camera.scale} extent={200000} />
 
                     <ActivityFlowLayer
                         flows={s.flows}

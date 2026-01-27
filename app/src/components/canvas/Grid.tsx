@@ -1,53 +1,39 @@
 type Props = {
-    width: number;
-    height: number;
+    width: number;   // conservé pour compat, non utilisé
+    height: number;  // conservé pour compat, non utilisé
     scale: number;
     enabled?: boolean;
     base?: number;
+    extent?: number; // NEW
 };
 
-export default function Grid({ width, height, scale, enabled = true, base = 50 }: Props) {
+export default function Grid({ scale, enabled = true, base = 50, extent = 200000 }: Props) {
     if (!enabled) return null;
 
     const BASE = base;
     const step = BASE * Math.pow(2, Math.floor(Math.log2(1 / scale)));
 
-    const linesX = Math.ceil(width / step);
-    const linesY = Math.ceil(height / step);
+    // stroke constant on screen
+    const sw = 1 / scale;
+
+    const patternId = `uml-grid-${BASE}-${Math.round(step)}`;
 
     const opacity = scale < 0.6 ? 0.15 : 0.3;
 
-    const lines = [];
+    return (
+        <g data-export="ignore" pointerEvents="none" opacity={opacity}>
+            <defs>
+                <pattern id={patternId} width={step} height={step} patternUnits="userSpaceOnUse">
+                    <path
+                        d={`M ${step} 0 L 0 0 0 ${step}`}
+                        fill="none"
+                        stroke="#2b1f27"
+                        strokeWidth={sw}
+                    />
+                </pattern>
+            </defs>
 
-    for (let i = -linesX; i <= linesX; i++) {
-        lines.push(
-            <line
-                key={`x-${i}`}
-                x1={i * step}
-                y1={-linesY * step}
-                x2={i * step}
-                y2={linesY * step}
-                stroke="#2b1f27"
-                strokeWidth={1}
-                opacity={opacity}
-            />
-        );
-    }
-
-    for (let j = -linesY; j <= linesY; j++) {
-        lines.push(
-            <line
-                key={`y-${j}`}
-                x1={-linesX * step}
-                y1={j * step}
-                x2={linesX * step}
-                y2={j * step}
-                stroke="#2b1f27"
-                strokeWidth={1}
-                opacity={opacity}
-            />
-        );
-    }
-
-    return <g data-export="ignore">{lines}</g>;
+            <rect x={-extent} y={-extent} width={extent * 2} height={extent * 2} fill={`url(#${patternId})`} />
+        </g>
+    );
 }

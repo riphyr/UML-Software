@@ -33,11 +33,15 @@ export function useActivityCamera(svgRef: React.RefObject<SVGSVGElement | null>)
         });
     }
 
-    function onMouseDown(e: React.MouseEvent) {
-        if (e.button !== 1) return; // middle mouse
+    function beginPan(e: React.MouseEvent) {
         const rect = svgRef.current?.getBoundingClientRect();
         if (!rect) return;
         panRef.current = { active: true, sx: e.clientX, sy: e.clientY, cx: camera.x, cy: camera.y };
+    }
+
+    function onMouseDown(e: React.MouseEvent) {
+        if (e.button !== 1) return; // middle mouse
+        beginPan(e);
     }
 
     function onMouseMove(e: React.MouseEvent) {
@@ -51,5 +55,5 @@ export function useActivityCamera(svgRef: React.RefObject<SVGSVGElement | null>)
         panRef.current.active = false;
     }
 
-    return { camera, setCamera, onWheel, onMouseDown, onMouseMove, onMouseUp, isPanning: panRef.current.active };
+    return { camera, setCamera, onWheel, onMouseDown, onMouseMove, onMouseUp, beginPan, isPanning: panRef.current.active };
 }
