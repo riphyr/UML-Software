@@ -138,6 +138,15 @@ export default function App() {
                     >
                         Export PNG
                     </ToolbarButton>
+
+                    <ToolbarButton
+                        title="Export image (PNG) - reversed colors"
+                        onClick={() => {
+                            canvasRef.current?.exportPng({ colorMode: "invert" });
+                        }}
+                    >
+                        Export PNG Reverse
+                    </ToolbarButton>
                 </div>
             </div>
 

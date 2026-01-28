@@ -29,7 +29,7 @@ import { useDiagramState } from "./canvas/useDiagramState";
 import { useDiagramActions } from "./canvas/useDiagramActions";
 import { useDiagramInput } from "./canvas/useDiagramInput";
 
-import { exportDiagramPng } from "../utils/exportDiagramPng";
+import { ExportColorMode, exportDiagramPng } from "../utils/exportDiagramPng";
 import { buildPortLayout, getEndpointPortPoint } from "./relations/ports";
 
 import type { DiagramType, UmlDocumentV1 } from "../model/umlDocument";
@@ -43,7 +43,7 @@ export type DiagramCanvasHandle = {
     load: () => void;
     exportFile: () => void;
     importFile: () => Promise<void>;
-    exportPng: () => void;
+    exportPng: (opts?: { colorMode?: ExportColorMode }) => void;
 
     setDiagramType: (t: DiagramType) => void;
     getDiagramType: () => DiagramType;
@@ -156,14 +156,16 @@ const DiagramCanvas = forwardRef<DiagramCanvasHandle, {}>(function DiagramCanvas
             importFile: async () => {
                 await persistence.importFile();
             },
-            exportPng: () => {
+            exportPng: (opts?: { colorMode?: ExportColorMode }) => {
                 if (!svgRef.current) return;
+
                 void exportDiagramPng({
                     svgEl: svgRef.current,
                     viewsById: state.viewsById,
                     filename: `uml-${diagramType}`,
                     padding: 24,
                     pixelRatio: 3,
+                    colorMode: opts?.colorMode ?? "normal",
                 });
             },
 
@@ -733,6 +735,9 @@ function ClassDiagramSurface(p: SurfaceProps) {
                                 x={state.selectedView.x}
                                 y={state.selectedView.y}
                                 width={state.selectedView.width}
+                                nameFontSize={17}
+                                nameFontWeight={state.selectedClass.kind === "interface" ? 400 : 500}
+                                nameFontStyle={state.selectedClass.kind === "abstract" ? "italic" : "normal"}
                                 editingAttrIndex={editApi.editingAttrIndex}
                                 editingMethodIndex={editApi.editingMethodIndex}
                                 editingName={editApi.editingName}

@@ -3,6 +3,8 @@ import type { ViewsById } from "../model/views";
 
 type Bounds = { x: number; y: number; w: number; h: number };
 
+export type ExportColorMode = "normal" | "invert" | "grayscaleInvert";
+
 function computeBoundsFromViews(viewsById: ViewsById): Bounds | null {
     const vs = Object.values(viewsById).filter(Boolean);
     if (vs.length === 0) return null;
@@ -195,7 +197,42 @@ function svgToObjectUrl(svgText: string) {
     return URL.createObjectURL(blob);
 }
 
-async function renderSvgUrlToPngBlob(svgUrl: string, w: number, h: number, pixelRatio: number): Promise<Blob> {
+function postProcessCanvas(ctx: CanvasRenderingContext2D, w: number, h: number, mode: ExportColorMode) {
+    if (mode === "normal") return;
+
+    const img = ctx.getImageData(0, 0, w, h);
+    const d = img.data;
+
+    if (mode === "invert") {
+        for (let i = 0; i < d.length; i += 4) {
+            d[i + 0] = 255 - d[i + 0];
+            d[i + 1] = 255 - d[i + 1];
+            d[i + 2] = 255 - d[i + 2];
+        }
+    } else {
+        // grayscaleInvert
+        for (let i = 0; i < d.length; i += 4) {
+            const r = d[i + 0];
+            const g = d[i + 1];
+            const b = d[i + 2];
+            const gray = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+            const v = 255 - gray;
+            d[i + 0] = v;
+            d[i + 1] = v;
+            d[i + 2] = v;
+        }
+    }
+
+    ctx.putImageData(img, 0, 0);
+}
+
+async function renderSvgUrlToPngBlob(
+    svgUrl: string,
+    w: number,
+    h: number,
+    pixelRatio: number,
+    colorMode: ExportColorMode
+): Promise<Blob> {
     const img = new Image();
     img.decoding = "async";
 
@@ -215,6 +252,9 @@ async function renderSvgUrlToPngBlob(svgUrl: string, w: number, h: number, pixel
     ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     ctx.drawImage(img, 0, 0, w, h);
 
+    // post-process sur la vraie résolution canvas
+    postProcessCanvas(ctx, canvas.width, canvas.height, colorMode);
+
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
     if (!blob) throw new Error("PNG export failed");
     return blob;
@@ -230,13 +270,14 @@ export async function exportDiagramPng(args: {
     filename?: string;
     padding?: number;
     pixelRatio?: number;
+    colorMode?: ExportColorMode;
 }) {
     const { svgEl, viewsById } = args;
 
     const filenameBase = (args.filename ?? "uml-diagram").replace(/\.png$/i, "");
     const padding = args.padding ?? 16;
-    const pixelRatio =
-        args.pixelRatio ?? Math.max(2, typeof window !== "undefined" ? window.devicePixelRatio || 1 : 2);
+    const pixelRatio = args.pixelRatio ?? Math.max(2, typeof window !== "undefined" ? window.devicePixelRatio || 1 : 2);
+    const colorMode: ExportColorMode = args.colorMode ?? "normal";
 
     const base = computeBoundsFromViews(viewsById);
     if (!base) return;
@@ -250,10 +291,7 @@ export async function exportDiagramPng(args: {
 
     // 🔑 FIX CRUCIAL : forcer l’héritage de currentColor depuis l’UI
     const uiStyle = getComputedStyle(svgEl);
-    cloned.setAttribute(
-        "style",
-        `color:${uiStyle.color};font-family:${uiStyle.fontFamily};`
-    );
+    cloned.setAttribute("style", `color:${uiStyle.color};font-family:${uiStyle.fontFamily};`);
 
     const outW = Math.ceil(b.w);
     const outH = Math.ceil(b.h);
@@ -278,7 +316,7 @@ export async function exportDiagramPng(args: {
 
     const url = svgToObjectUrl(payload);
     try {
-        const pngBlob = await renderSvgUrlToPngBlob(url, outW, outH, pixelRatio);
+        const pngBlob = await renderSvgUrlToPngBlob(url, outW, outH, pixelRatio, colorMode);
         await saveBlobAsWithPicker(pngBlob, `${filenameBase}.png`);
     } finally {
         URL.revokeObjectURL(url);

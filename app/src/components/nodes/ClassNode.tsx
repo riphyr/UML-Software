@@ -242,13 +242,14 @@ export default function ClassNode({
                     y={nameY}
                     textAnchor="middle"
                     dominantBaseline="middle"
-                    fontSize={14}
+                    fontSize={17}
                     fill="#f2f0f7"
                     fontFamily="Inter, system-ui, sans-serif"
                     style={{
                         pointerEvents: "none",
                         userSelect: "none" as const,
                         fontStyle: kind === "abstract" ? ("italic" as const) : ("normal" as const),
+                        fontWeight: kind === "interface" ? (400 as any) : (500 as any),
                     }}
                 >
                     {name}

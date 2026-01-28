@@ -13,6 +13,12 @@ type Props = {
     nameValue: string;
     onNameChange: (v: string) => void;
 
+    // Must match the rendered ClassNode name typography when editing.
+    // If omitted, falls back to the old defaults (14 / normal).
+    nameFontSize?: number;
+    nameFontWeight?: number;
+    nameFontStyle?: "normal" | "italic";
+
     attrStartY: number;
     methodsStartY: number;
 
@@ -26,7 +32,7 @@ type Props = {
     cancelName: () => void;
 };
 
-const TEXT_PADDING_X = 8;   // doit matcher ClassNode
+const TEXT_PADDING_X = 8; // doit matcher ClassNode
 const BORDER_EXTRA_X = 4;
 const BORDER_HEIGHT = 18;
 const BORDER_Y_OFFSET = -1;
@@ -52,6 +58,9 @@ export default function InlineEditors(props: Props) {
         editingName,
         nameValue,
         onNameChange,
+        nameFontSize,
+        nameFontWeight,
+        nameFontStyle,
         attrStartY,
         methodsStartY,
         editBuffer,
@@ -89,7 +98,10 @@ export default function InlineEditors(props: Props) {
 
     const activeValue = mode === "name" ? nameValue : editBuffer;
 
-    const fontSize = mode === "name" ? 14 : 12;
+    // 🔑 MUST match ClassNode for name editing
+    const fontSize = mode === "name" ? (nameFontSize ?? 14) : 12;
+    const fontWeight = mode === "name" ? (nameFontWeight ?? 400) : 400;
+    const fontStyle = mode === "name" ? (nameFontStyle ?? "normal") : "normal";
 
     const lineTop = useMemo(() => {
         if (mode === "name") return y;
@@ -102,6 +114,7 @@ export default function InlineEditors(props: Props) {
 
     const textX = x + TEXT_PADDING_X;
     const boxX = x + TEXT_PADDING_X - BORDER_EXTRA_X;
+    const centerX = x + width / 2;
     const boxW = width - 2 * TEXT_PADDING_X + 2 * BORDER_EXTRA_X;
     const boxY = (lineTop ?? 0) + (lineHeight - BORDER_HEIGHT) / 2 + BORDER_Y_OFFSET;
 
@@ -161,8 +174,17 @@ export default function InlineEditors(props: Props) {
         // X
         const tx = measureXRef.current;
         if (tx) {
+            let total = 0;
+            try {
+                total = tx.getComputedTextLength();
+            } catch {
+                total = 0;
+            }
+
+            const startX = mode === "name" ? centerX - total / 2 : textX;
+
             if (activeValue.length === 0) {
-                setCaretX(textX);
+                setCaretX(mode === "name" ? centerX : textX);
             } else {
                 let wCaret = 0;
                 try {
@@ -174,7 +196,7 @@ export default function InlineEditors(props: Props) {
                         wCaret = 0;
                     }
                 }
-                setCaretX(textX + wCaret);
+                setCaretX(startX + wCaret);
             }
         } else {
             setCaretX(null);
@@ -195,7 +217,7 @@ export default function InlineEditors(props: Props) {
             setCaretY1(null);
             setCaretY2(null);
         }
-    }, [mode, lineTop, lineHeight, caretIndex, activeValue, textX]);
+    }, [mode, lineTop, lineHeight, caretIndex, activeValue, textX, centerX]);
 
     function commit() {
         if (mode === "name") commitName();
@@ -220,8 +242,14 @@ export default function InlineEditors(props: Props) {
 
         fontFamily: "Inter, system-ui, sans-serif",
         fontSize,
+        fontWeight,
+        fontStyle,
         lineHeight: `${lineHeight}px`,
         boxSizing: "border-box",
+
+        textAlign: mode === "name" ? ("center" as const) : ("left" as const),
+        paddingLeft: 0,
+        paddingRight: 0,
     };
 
     function onInputChange(v: string) {
@@ -260,12 +288,21 @@ export default function InlineEditors(props: Props) {
     try {
         const t = measureXRef.current;
         if (t) {
+            let total = 0;
+            try {
+                total = t.getComputedTextLength();
+            } catch {
+                total = 0;
+            }
+
+            const startX = mode === "name" ? centerX - total / 2 : textX;
+
             const a = Math.max(0, Math.min(selStart, measureValue.length));
             const b = Math.max(0, Math.min(selEnd, measureValue.length));
             const wa = a === 0 ? 0 : t.getSubStringLength(0, a);
             const wb = b === 0 ? 0 : t.getSubStringLength(0, b);
-            selX1 = textX + wa;
-            selX2 = textX + wb;
+            selX1 = startX + wa;
+            selX2 = startX + wb;
         }
     } catch {
         selX1 = null;
@@ -296,28 +333,34 @@ export default function InlineEditors(props: Props) {
                 pointerEvents="none"
             />
 
-            {/* Texte invisible pour mesurer X (substring). Si vide -> ZWSP pour stabiliser certains moteurs. */}
+            {/* Texte invisible pour mesurer X */}
             <text
                 ref={measureXRef}
-                x={textX}
+                x={mode === "name" ? centerX : textX}
                 y={lineTop + lineHeight / 2}
                 dominantBaseline="middle"
+                textAnchor={mode === "name" ? "middle" : undefined}
                 fontSize={fontSize}
                 fontFamily="Inter, system-ui, sans-serif"
+                fontWeight={fontWeight as any}
+                fontStyle={fontStyle as any}
                 fill="transparent"
                 style={{ userSelect: "none" as const, pointerEvents: "none" }}
             >
                 {measureValue}
             </text>
 
-            {/* Texte invisible pour mesurer Y (bbox stable), indépendant du contenu. */}
+            {/* Texte invisible pour mesurer Y */}
             <text
                 ref={metricsYRef}
-                x={textX}
+                x={mode === "name" ? centerX : textX}
                 y={lineTop + lineHeight / 2}
                 dominantBaseline="middle"
+                textAnchor={mode === "name" ? "middle" : undefined}
                 fontSize={fontSize}
                 fontFamily="Inter, system-ui, sans-serif"
+                fontWeight={fontWeight as any}
+                fontStyle={fontStyle as any}
                 fill="transparent"
                 style={{ userSelect: "none" as const, pointerEvents: "none" }}
             >
