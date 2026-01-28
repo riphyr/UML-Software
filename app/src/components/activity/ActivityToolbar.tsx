@@ -38,62 +38,16 @@ export default function ActivityToolbar(p: {
                     Select
                 </ToolbarButton>
 
-                <ToolbarButton
-                    active={p.mode === "linkControl"}
-                    title="Control flow link (L)"
-                    onClick={() => p.setMode("linkControl")}
-                >
+                <ToolbarButton active={p.mode === "link"} title="Link (L)" onClick={() => p.setMode("link")}>
                     Link
                 </ToolbarButton>
 
-                <ToolbarButton
-                    active={p.mode === "linkObject"}
-                    title="Object flow link (Shift+L)"
-                    onClick={() => p.setMode("linkObject")}
-                >
-                    Obj link
+                <ToolbarButton active={p.mode === "addNode"} title="Add node (A)" onClick={() => p.setMode("addNode")}>
+                    Node
                 </ToolbarButton>
-            </div>
 
-            <div style={{ width: 1, height: 28, background: "#2b1f27" }} />
-
-            {/* Node creation */}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <ToolbarButton active={p.mode === "addAction"} title="Add Action (A)" onClick={() => p.setMode("addAction")}>
-                    Action
-                </ToolbarButton>
-                <ToolbarButton
-                    active={p.mode === "addDecision"}
-                    title="Add Decision (D)"
-                    onClick={() => p.setMode("addDecision")}
-                >
-                    Decision
-                </ToolbarButton>
-                <ToolbarButton active={p.mode === "addMerge"} title="Add Merge (E)" onClick={() => p.setMode("addMerge")}>
-                    Merge
-                </ToolbarButton>
-                <ToolbarButton active={p.mode === "addFork"} title="Add Fork (F)" onClick={() => p.setMode("addFork")}>
-                    Fork
-                </ToolbarButton>
-                <ToolbarButton active={p.mode === "addJoin"} title="Add Join (J)" onClick={() => p.setMode("addJoin")}>
-                    Join
-                </ToolbarButton>
-                <ToolbarButton
-                    active={p.mode === "addObject"}
-                    title="Add Object (O)"
-                    onClick={() => p.setMode("addObject")}
-                >
+                <ToolbarButton active={p.mode === "addObject"} title="Add object (O)" onClick={() => p.setMode("addObject")}>
                     Object
-                </ToolbarButton>
-                <ToolbarButton
-                    active={p.mode === "addInitial"}
-                    title="Add Initial (I)"
-                    onClick={() => p.setMode("addInitial")}
-                >
-                    Initial
-                </ToolbarButton>
-                <ToolbarButton active={p.mode === "addFinal"} title="Add Final (X)" onClick={() => p.setMode("addFinal")}>
-                    Final
                 </ToolbarButton>
             </div>
 

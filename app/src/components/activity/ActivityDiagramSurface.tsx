@@ -53,7 +53,7 @@ export default function ActivityDiagramSurface() {
 
     const undo = useActivityUndoRedo({
         getSnapshot: () => normalizeActivitySnapshot(s.getSnapshot()),
-        applySnapshot: (snap) => s.applySnapshot(normalizeActivitySnapshot(snap)),
+        applySnapshot: (snapShot) => s.applySnapshot(normalizeActivitySnapshot(snapShot)),
     });
 
     const actions = useActivityActions({
@@ -67,26 +67,11 @@ export default function ActivityDiagramSurface() {
         setSelectedFlowId: s.setSelectedFlowId,
     });
 
-    const linkKind = s.mode === "linkObject" ? "object" : "control";
-    const link = useActivityLinkCreation({ viewsById: s.viewsById, kind: linkKind });
+    // Link unique : crée en control par défaut, modifiable dans l'inspecteur
+    const link = useActivityLinkCreation({ viewsById: s.viewsById, kind: "control" });
 
     function createNodeAt(world: { x: number; y: number }) {
-        const kind =
-            s.mode === "addInitial"
-                ? "initial"
-                : s.mode === "addFinal"
-                    ? "final"
-                    : s.mode === "addDecision"
-                        ? "decision"
-                        : s.mode === "addMerge"
-                            ? "merge"
-                            : s.mode === "addFork"
-                                ? "fork"
-                                : s.mode === "addJoin"
-                                    ? "join"
-                                    : s.mode === "addObject"
-                                        ? "object"
-                                        : "action";
+        const kind: ActivityNode["kind"] = s.mode === "addObject" ? "object" : "action";
 
         const id = uid("node");
         const size = defaultSize(kind);
@@ -137,7 +122,8 @@ export default function ActivityDiagramSurface() {
             start: link.start,
             cancel: link.cancel,
         },
-        commitFlow: ({ fromId, toId }) => actions.createFlow({ kind: link.kind, fromId, toId }),
+
+        commitFlow: ({ fromId, toId }) => actions.createFlow({ kind: "control", fromId, toId }),
 
         createNodeAt,
 
@@ -156,7 +142,10 @@ export default function ActivityDiagramSurface() {
         >
             <ActivityToolbar
                 mode={s.mode}
-                setMode={(m) => { s.setMode(m); if (m !== "linkControl" && m !== "linkObject") link.cancel(); }}
+                setMode={(m) => {
+                    s.setMode(m);
+                    if (m !== "link") link.cancel();
+                }}
                 undo={() => undo.undo()}
                 redo={() => undo.redo()}
                 grid={s.grid}
@@ -182,15 +171,13 @@ export default function ActivityDiagramSurface() {
                 }}
                 onWheel={cam.onWheel}
                 onMouseDown={(e) => {
-                    // Background pan: left-drag in Select mode.
-                    // (Nodes/flows stopPropagation so this handler is only for the background.)
+                    // Pan en select (left drag)
                     if (e.button === 0 && s.mode === "select" && !link.active) {
                         e.preventDefault();
                         cam.beginPan(e);
                         return;
                     }
-
-                    cam.onMouseDown(e); // middle mouse pan
+                    cam.onMouseDown(e); // middle mouse
                     if (e.button !== 1) input.onBackgroundMouseDown(e);
                 }}
                 onMouseMove={(e) => {
@@ -271,6 +258,30 @@ export default function ActivityDiagramSurface() {
                         undo.push();
                         actions.setNodeName(id, name);
                     }}
+                    setNodeKind={(id, kind) => {
+                        undo.push();
+                        actions.setNodeKind(id, kind);
+
+                        // resize au type, en gardant le centre
+                        const next = defaultSize(kind);
+                        s.setViewsById((prev) => {
+                            const v = prev[id];
+                            if (!v) return prev;
+
+                            const cx = v.x + v.w / 2;
+                            const cy = v.y + v.h / 2;
+
+                            let nx = cx - next.w / 2;
+                            let ny = cy - next.h / 2;
+
+                            if (s.grid.enabled) {
+                                nx = snap(nx, s.grid.size);
+                                ny = snap(ny, s.grid.size);
+                            }
+
+                            return { ...prev, [id]: { x: nx, y: ny, w: next.w, h: next.h } };
+                        });
+                    }}
                     setFlowLabel={(id, label) => {
                         undo.push();
                         actions.setFlowLabel(id, label);
@@ -278,6 +289,10 @@ export default function ActivityDiagramSurface() {
                     setFlowGuard={(id, guard) => {
                         undo.push();
                         actions.setFlowGuard(id, guard);
+                    }}
+                    setFlowKind={(id, kind) => {
+                        undo.push();
+                        actions.setFlowKind(id, kind);
                     }}
                     deleteSelected={() => {
                         undo.push();

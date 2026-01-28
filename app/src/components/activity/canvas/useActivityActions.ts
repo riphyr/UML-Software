@@ -1,4 +1,4 @@
-import type { ActivityFlow, ActivityNode } from "../../../model/activity/activity";
+import type { ActivityFlow, ActivityFlowKind, ActivityNode, ActivityNodeKind } from "../../../model/activity/activity";
 import { uid } from "../utils/id";
 
 export function useActivityActions(p: {
@@ -17,12 +17,20 @@ export function useActivityActions(p: {
         p.setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, name } : n)));
     }
 
+    function setNodeKind(id: string, kind: ActivityNodeKind) {
+        p.setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, kind } : n)));
+    }
+
     function setFlowLabel(id: string, label: string) {
         p.setFlows((prev) => prev.map((f) => (f.id === id ? { ...f, label } : f)));
     }
 
     function setFlowGuard(id: string, guard: string) {
         p.setFlows((prev) => prev.map((f) => (f.id === id ? { ...f, guard } : f)));
+    }
+
+    function setFlowKind(id: string, kind: ActivityFlowKind) {
+        p.setFlows((prev) => prev.map((f) => (f.id === id ? { ...f, kind } : f)));
     }
 
     function deleteSelected() {
@@ -42,7 +50,7 @@ export function useActivityActions(p: {
         }
     }
 
-    function createFlow(args: { kind: "control" | "object"; fromId: string; toId: string }) {
+    function createFlow(args: { kind: ActivityFlowKind; fromId: string; toId: string }) {
         const f: ActivityFlow = {
             id: uid("flow"),
             kind: args.kind,
@@ -59,8 +67,12 @@ export function useActivityActions(p: {
 
     return {
         setNodeName,
+        setNodeKind,
+
         setFlowLabel,
         setFlowGuard,
+        setFlowKind,
+
         deleteSelected,
         createFlow,
     };

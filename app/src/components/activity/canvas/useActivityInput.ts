@@ -2,7 +2,7 @@ import type { RefObject } from "react";
 import type { ActivityMode } from "./useActivityState";
 import type { ActivityNode, ActivityViewsById } from "../../../model/activity/activity";
 import { screenToWorld } from "../utils/coords";
-import { pointInRect, snap } from "../utils/geom";
+import { snap } from "../utils/geom";
 import { hitTestFlow } from "../flows/flowHitTest";
 
 export function useActivityInput(p: {
@@ -28,7 +28,6 @@ export function useActivityInput(p: {
 
     undoPush: () => void;
 
-    // link tool
     link: {
         active: boolean;
         fromId: string | null;
@@ -36,12 +35,11 @@ export function useActivityInput(p: {
         start: (fromId: string) => void;
         cancel: () => void;
     };
+
     commitFlow: (args: { fromId: string; toId: string }) => void;
 
-    // creation nodes
     createNodeAt: (world: { x: number; y: number }) => void;
 
-    // delete
     deleteSelected: () => void;
 }) {
     const drag = { active: false, id: "", ox: 0, oy: 0 };
@@ -51,17 +49,6 @@ export function useActivityInput(p: {
         const sx = e.clientX - rect.left;
         const sy = e.clientY - rect.top;
         return screenToWorld(sx, sy, p.camera);
-    }
-
-    function hitNode(world: { x: number; y: number }) {
-        // topmost: last in array wins => iterate reverse
-        for (let i = p.nodes.length - 1; i >= 0; i--) {
-            const n = p.nodes[i];
-            const v = p.viewsById[n.id];
-            if (!v) continue;
-            if (pointInRect(world.x, world.y, { x: v.x, y: v.y, w: v.w, h: v.h })) return n.id;
-        }
-        return null;
     }
 
     function onKeyDown(e: React.KeyboardEvent) {
@@ -74,9 +61,6 @@ export function useActivityInput(p: {
             p.undoPush();
             p.deleteSelected();
         }
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-            // undo géré par la toolbar dans cette V1
-        }
     }
 
     function onBackgroundMouseDown(e: React.MouseEvent) {
@@ -84,14 +68,21 @@ export function useActivityInput(p: {
 
         const world = worldFromEvent(e);
 
-        // mode création node
-        if (p.mode.startsWith("add")) {
+        // création (1 clic puis retour select)
+        if (p.mode === "addNode" || p.mode === "addObject") {
             p.undoPush();
             p.createNodeAt(world);
+            p.setMode("select");
             return;
         }
 
-        // sélection: tenter flow si rien sur node
+        // clic fond en link => annule et repasse select
+        if (p.mode === "link") {
+            if (p.link.active) p.link.cancel();
+            p.setMode("select");
+        }
+
+        // sélectionner un flow si hit
         const flowId = hitTestFlow({
             flows: p.flows as any,
             viewsById: p.viewsById,
@@ -147,14 +138,15 @@ export function useActivityInput(p: {
         e.stopPropagation();
         if (!p.svgRef.current) return;
 
-        // link mode: click node selects from/to
-        if (p.mode === "linkControl" || p.mode === "linkObject") {
+        // link: 2 clics => crée puis retour select
+        if (p.mode === "link") {
             if (!p.link.active) {
                 p.link.start(id);
                 p.setSelectedNodeIds([id]);
                 p.setSelectedFlowId(null);
                 return;
             }
+
             const fromId = p.link.fromId;
             if (!fromId) return;
             if (fromId === id) return;
@@ -162,10 +154,11 @@ export function useActivityInput(p: {
             p.undoPush();
             p.commitFlow({ fromId, toId: id });
             p.link.cancel();
+            p.setMode("select");
             return;
         }
 
-        // selection
+        // selection multi (Shift)
         if (e.shiftKey) {
             p.setSelectedFlowId(null);
             p.setSelectedNodeIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [id, ...prev]));
@@ -178,6 +171,7 @@ export function useActivityInput(p: {
         const world = worldFromEvent(e);
         const v = p.viewsById[id];
         if (!v) return;
+
         (drag as any).active = true;
         (drag as any).id = id;
         (drag as any).ox = world.x - v.x;
@@ -185,7 +179,6 @@ export function useActivityInput(p: {
     }
 
     function onDoubleClickNode(id: string) {
-        // rien de spécial en V1 (édition via inspector)
         p.setSelectedNodeIds([id]);
         p.setSelectedFlowId(null);
     }
@@ -197,6 +190,5 @@ export function useActivityInput(p: {
         onMouseUp,
         onNodeMouseDown,
         onDoubleClickNode,
-        hitNode, // utile si tu veux étendre
     };
 }

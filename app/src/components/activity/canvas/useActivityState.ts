@@ -4,16 +4,9 @@ import { makeEmptyActivitySnapshot } from "../../../model/activity/activitySnaps
 
 export type ActivityMode =
     | "select"
-    | "addAction"
-    | "addDecision"
-    | "addMerge"
-    | "addFork"
-    | "addJoin"
-    | "addInitial"
-    | "addFinal"
+    | "addNode"
     | "addObject"
-    | "linkControl"
-    | "linkObject";
+    | "link";
 
 export function useActivityState() {
     const [nodes, setNodes] = useState<ActivityNode[]>([]);
@@ -31,7 +24,10 @@ export function useActivityState() {
         [selectedNodeIds, nodes]
     );
 
-    const selectedFlow = useMemo(() => (selectedFlowId ? flows.find((f) => f.id === selectedFlowId) ?? null : null), [selectedFlowId, flows]);
+    const selectedFlow = useMemo(
+        () => (selectedFlowId ? flows.find((f) => f.id === selectedFlowId) ?? null : null),
+        [selectedFlowId, flows]
+    );
 
     function clearSelection() {
         setSelectedNodeIds([]);
